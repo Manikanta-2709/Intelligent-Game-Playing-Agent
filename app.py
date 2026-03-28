@@ -1,14 +1,27 @@
-"""Flask web app for playing Tic-Tac-Toe against the computer."""
+"""Flask web app for Tic-Tac-Toe and chess against the computer."""
 
 import json
+import os
 import random
 import sqlite3
+import socket
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
+from chess_logic import (
+    apply_human_move as apply_chess_human_move,
+    build_game_state as build_chess_game_state,
+    choose_computer_move as choose_chess_computer_move,
+    create_board as create_chess_board,
+    get_winner as get_chess_winner,
+    load_board as load_chess_board,
+    normalize_difficulty as normalize_chess_difficulty,
+    normalize_player_color,
+)
 from game_logic import (
     check_winner,
     get_available_moves,
@@ -23,9 +36,22 @@ COMPUTER = "O"
 VALID_MARKERS = {"", HUMAN, COMPUTER}
 FIRST_PLAYER_OPTIONS = {"human", "computer"}
 DIFFICULTY_OPTIONS = {"easy", "medium", "hard"}
-DATABASE_FILE = Path(__file__).with_name("game_history.db")
-LEGACY_SAVE_FILE = Path(__file__).with_name("saved_game.json")
+AI_MOVE_DELAY_SECONDS = 2
 IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _get_data_directory():
+    """Return the directory used for writable app data."""
+    data_dir = os.getenv("APP_DATA_DIR", "").strip()
+    if data_dir:
+        return Path(data_dir)
+    return Path(__file__).resolve().parent
+
+
+DATA_DIR = _get_data_directory()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATABASE_FILE = DATA_DIR / "game_history.db"
+LEGACY_SAVE_FILE = DATA_DIR / "saved_game.json"
 
 app = Flask(__name__, template_folder=".", static_folder=".", static_url_path="")
 
@@ -688,6 +714,82 @@ def _choose_computer_move(board, difficulty):
     return best_move, best_move
 
 
+def _pause_before_ai_move():
+    """Add a small delay so computer moves feel paced for the player."""
+    time.sleep(AI_MOVE_DELAY_SECONDS)
+
+
+def _normalize_chess_scoreboard(scoreboard):
+    """Return a sanitized scoreboard for chess mode."""
+    return _normalize_scoreboard(scoreboard)
+
+
+def _chess_player_color_from_first_player(first_player):
+    """Return the human color based on who opens the chess game."""
+    return "white" if first_player == "human" else "black"
+
+
+def _chess_turn_from_color(color):
+    """Return True for white and False for black."""
+    return color == "white"
+
+
+def _chess_result_status(board, player_color):
+    """Return a human-readable final chess status string."""
+    winner = get_chess_winner(board)
+
+    if winner is None:
+        return "Draw by stalemate, repetition, or insufficient material."
+
+    if winner == player_color:
+        return "Checkmate. You win."
+
+    return "Checkmate. Computer wins."
+
+
+def _update_chess_scoreboard(scoreboard, board, player_color):
+    """Return the updated chess scoreboard after a completed game."""
+    safe_scoreboard = _normalize_chess_scoreboard(scoreboard)
+    winner = get_chess_winner(board)
+
+    if winner is None:
+        safe_scoreboard["draws"] += 1
+    elif winner == player_color:
+        safe_scoreboard["human"] += 1
+    else:
+        safe_scoreboard["computer"] += 1
+
+    return safe_scoreboard
+
+
+def _get_server_config():
+    """Return host, port, and debug settings for the Flask server."""
+    host = os.getenv("FLASK_HOST", "0.0.0.0").strip() or "0.0.0.0"
+
+    try:
+        port = int(os.getenv("PORT") or os.getenv("FLASK_PORT", "5000"))
+    except ValueError:
+        port = 5000
+
+    debug = os.getenv("FLASK_DEBUG", "1").strip().lower() in {"1", "true", "yes", "on"}
+    return host, port, debug
+
+
+def _get_lan_ip():
+    """Best-effort lookup for the machine's LAN IP address."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        return sock.getsockname()[0]
+    except OSError:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except OSError:
+            return "127.0.0.1"
+    finally:
+        sock.close()
+
+
 @app.get("/")
 def index():
     """Serve the main application page."""
@@ -706,6 +808,7 @@ def new_game():
     status = "Your turn"
 
     if first_player == "computer":
+        _pause_before_ai_move()
         opening_move, best_move = _choose_computer_move(board, difficulty)
         if opening_move is not None:
             make_move(board, opening_move, COMPUTER)
@@ -792,6 +895,7 @@ def play_move():
         state["analysis"] = _get_overall_analysis()
         return jsonify(state)
 
+    _pause_before_ai_move()
     make_move(next_board, computer_move, COMPUTER)
     analysis["totalMoves"] += 1
     if computer_move == best_move:
@@ -837,6 +941,105 @@ def play_move():
     return jsonify(state)
 
 
+@app.post("/api/chess/new-game")
+def new_chess_game():
+    """Start a new chess game and optionally let the computer move first."""
+    payload = request.get_json(silent=True) or {}
+    first_player = _normalize_first_player(payload.get("firstPlayer"))
+    difficulty = normalize_chess_difficulty(payload.get("difficulty"))
+    player_color = _chess_player_color_from_first_player(first_player)
+    scoreboard = _normalize_chess_scoreboard(payload.get("scoreboard"))
+    board = create_chess_board()
+    last_move = None
+    status = "Your turn."
+
+    if first_player == "computer":
+        _pause_before_ai_move()
+        computer_move = choose_chess_computer_move(board, difficulty)
+        if computer_move is not None:
+            board.push(computer_move)
+            last_move = computer_move
+        status = "Computer opens. Your turn."
+
+    state = build_chess_game_state(
+        board,
+        status,
+        player_color=player_color,
+        difficulty=difficulty,
+        scoreboard=scoreboard,
+        last_move=last_move,
+    )
+    return jsonify(state)
+
+
+@app.post("/api/chess/move")
+def play_chess_move():
+    """Apply the human chess move, answer with the computer move, and return the new state."""
+    payload = request.get_json(silent=True) or {}
+    difficulty = normalize_chess_difficulty(payload.get("difficulty"))
+    player_color = normalize_player_color(payload.get("playerColor"))
+    scoreboard = _normalize_chess_scoreboard(payload.get("scoreboard"))
+
+    try:
+        board = load_chess_board(payload.get("fen"))
+        human_move = apply_chess_human_move(
+            board,
+            payload.get("fromSquare"),
+            payload.get("toSquare"),
+            player_color,
+            payload.get("promotion", "q"),
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    if board.is_game_over(claim_draw=True):
+        final_scoreboard = _update_chess_scoreboard(scoreboard, board, player_color)
+        state = build_chess_game_state(
+            board,
+            _chess_result_status(board, player_color),
+            player_color=player_color,
+            difficulty=difficulty,
+            scoreboard=final_scoreboard,
+            last_move=human_move,
+        )
+        _persist_completed_game(state, {"optimalMoves": 0, "totalMoves": len(board.move_stack)})
+        return jsonify(state)
+
+    if board.turn != _chess_turn_from_color(player_color):
+        _pause_before_ai_move()
+        computer_move = choose_chess_computer_move(board, difficulty)
+        if computer_move is not None:
+            board.push(computer_move)
+        else:
+            computer_move = human_move
+    else:
+        computer_move = human_move
+
+    if board.is_game_over(claim_draw=True):
+        final_scoreboard = _update_chess_scoreboard(scoreboard, board, player_color)
+        status = _chess_result_status(board, player_color)
+        state = build_chess_game_state(
+            board,
+            status,
+            player_color=player_color,
+            difficulty=difficulty,
+            scoreboard=final_scoreboard,
+            last_move=computer_move,
+        )
+        _persist_completed_game(state, {"optimalMoves": 0, "totalMoves": len(board.move_stack)})
+        return jsonify(state)
+
+    state = build_chess_game_state(
+        board,
+        "Computer moved. Your turn." if computer_move != human_move else "Your turn.",
+        player_color=player_color,
+        difficulty=difficulty,
+        scoreboard=scoreboard,
+        last_move=computer_move,
+    )
+    return jsonify(state)
+
+
 @app.get("/api/load")
 def load_game():
     """Load the most recently completed game from the database."""
@@ -845,6 +1048,20 @@ def load_game():
         return jsonify({"error": "No saved game was found."}), 404
 
     return jsonify(current_state)
+
+
+@app.get("/api/health")
+def health_check():
+    """Return basic server status for remote connectivity checks."""
+    host, port, _ = _get_server_config()
+    return jsonify(
+        {
+            "status": "ok",
+            "serverHost": host,
+            "serverPort": port,
+            "lanUrl": f"http://{_get_lan_ip()}:{port}",
+        }
+    )
 
 
 @app.post("/api/reset-data")
@@ -861,4 +1078,10 @@ def reset_data():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    host, port, debug = _get_server_config()
+    lan_ip = _get_lan_ip()
+
+    print(f"Server starting on http://127.0.0.1:{port}")
+    print(f"LAN access available at http://{lan_ip}:{port}")
+
+    app.run(host=host, port=port, debug=debug)

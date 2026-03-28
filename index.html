@@ -3,15 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tic-Tac-Toe</title>
+    <title>Board Games Hub</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <main class="app-shell">
+    <section id="game-picker" class="picker-shell">
+        <div class="picker-panel">
+            <p class="eyebrow">Choose Your Game</p>
+            <h1>Board Games Hub</h1>
+            <p class="subtitle">
+                Pick a game to start. The page will open the matching board and automatically fit it to your screen size.
+            </p>
+
+            <div class="game-cards">
+                <button class="game-card" type="button" data-mode="tictactoe">
+                    <span class="game-card-label">Classic</span>
+                    <strong>Tic-Tac-Toe</strong>
+                    <span class="game-card-copy">Fast rounds, instant moves, and score tracking against the computer.</span>
+                </button>
+                <button class="game-card" type="button" data-mode="chess">
+                    <span class="game-card-label">Strategy</span>
+                    <strong>Chess</strong>
+                    <span class="game-card-copy">Full-board play with legal move highlights and computer responses.</span>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <main id="game-view" class="app-shell is-hidden">
         <section class="hero-panel">
             <p class="eyebrow">Play Against The Computer</p>
-            <h1>Tic-Tac-Toe</h1>
-            <p class="subtitle">
+            <h1 id="game-title">Tic-Tac-Toe</h1>
+            <p id="game-subtitle" class="subtitle">
                 Claim three in a row before the computer does. Your game auto-saves as you play, and you can choose who starts and how challenging the computer should be.
             </p>
 
@@ -23,6 +46,11 @@
                 <div class="status-card">
                     <span class="label">Score</span>
                     <p id="score" class="score-text">You 0 - 0 Computer | Draws 0</p>
+                </div>
+                <div id="side-card" class="status-card is-hidden">
+                    <span class="label">Your Side</span>
+                    <p id="side-indicator" class="status-text">You are White</p>
+                    <p id="side-helper" class="detail-text">Your side stays at the bottom and the last move is highlighted.</p>
                 </div>
             </div>
 
@@ -44,16 +72,17 @@
                         </select>
                     </div>
                 </div>
-                <p class="setup-hint">Progress auto-saves after every move and every new round.</p>
+                <p id="setup-hint" class="setup-hint">Progress auto-saves after every move and every new round.</p>
             </div>
 
             <div class="actions">
                 <button id="restart" class="primary-button" type="button">New Round</button>
+                <button id="change-game" class="secondary-button" type="button">Choose Another Game</button>
                 <button id="reset-score" class="secondary-button" type="button">Reset All Data</button>
             </div>
         </section>
 
-        <section class="board-panel" aria-label="Tic-Tac-Toe board">
+        <section class="board-panel" aria-label="Game board">
             <div id="board" class="board" role="grid"></div>
         </section>
     </main>
