@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic-Tac-Toe</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <main class="app-shell">
+        <section class="hero-panel">
+            <p class="eyebrow">Play Against The Computer</p>
+            <h1>Tic-Tac-Toe</h1>
+            <p class="subtitle">
+                Claim three in a row before the computer does. Your game auto-saves as you play, and you can choose who starts and how challenging the computer should be.
+            </p>
+
+            <div class="hud">
+                <div class="status-card">
+                    <span class="label">Status</span>
+                    <p id="status" class="status-text">Your turn</p>
+                </div>
+                <div class="status-card">
+                    <span class="label">Score</span>
+                    <p id="score" class="score-text">You 0 - 0 Computer | Draws 0</p>
+                </div>
+            </div>
+
+            <div class="setup-panel">
+                <div class="setup-grid">
+                    <div>
+                        <label class="label" for="first-player">Who Plays First</label>
+                        <select id="first-player" class="select-input">
+                            <option value="human">You</option>
+                            <option value="computer">Computer</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label" for="difficulty">Difficulty Mode</label>
+                        <select id="difficulty" class="select-input">
+                            <option value="easy">Easy</option>
+                            <option value="medium">Medium</option>
+                            <option value="hard">Hard</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="setup-hint">Progress auto-saves after every move and every new round.</p>
+            </div>
+
+            <div class="actions">
+                <button id="restart" class="primary-button" type="button">New Round</button>
+                <button id="reset-score" class="secondary-button" type="button">Reset All Data</button>
+            </div>
+        </section>
+
+        <section class="board-panel" aria-label="Tic-Tac-Toe board">
+            <div id="board" class="board" role="grid"></div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
