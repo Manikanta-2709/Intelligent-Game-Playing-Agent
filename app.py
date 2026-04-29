@@ -1259,7 +1259,7 @@ def play_chess_move():
 
     try:
         board = load_chess_board(payload.get("fen"))
-        human_move = apply_chess_human_move(
+        human_move, quality = apply_chess_human_move(
             board,
             payload.get("fromSquare"),
             payload.get("toSquare"),
@@ -1278,6 +1278,7 @@ def play_chess_move():
             difficulty=difficulty,
             scoreboard=final_scoreboard,
             last_move=human_move,
+            move_quality=quality
         )
         _persist_completed_game(state, {"optimalMoves": 0, "totalMoves": len(board.move_stack)}, "chess")
         return jsonify(state)
@@ -1302,6 +1303,7 @@ def play_chess_move():
             difficulty=difficulty,
             scoreboard=final_scoreboard,
             last_move=computer_move,
+            move_quality=quality if computer_move == human_move else None
         )
         _persist_completed_game(state, {"optimalMoves": 0, "totalMoves": len(board.move_stack)}, "chess")
         return jsonify(state)
@@ -1313,6 +1315,7 @@ def play_chess_move():
         difficulty=difficulty,
         scoreboard=scoreboard,
         last_move=computer_move,
+        move_quality=quality if computer_move == human_move else None
     )
     return jsonify(state)
 
