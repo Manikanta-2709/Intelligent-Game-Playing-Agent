@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Board Games Hub - Home</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-image: url("{{ url_for('static', filename='images/home_bg.png') }}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 24px;
+        }
+        
+        .home-card {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 32px;
+            padding: 60px 40px;
+            text-align: center;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), inset 0 0 0 1px rgba(255,255,255,0.05);
+            max-width: 500px;
+            width: 100%;
+        }
+
+        .home-title {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 800;
+            margin: 0 0 16px 0;
+            background: linear-gradient(135deg, #ffffff, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .home-subtitle {
+            font-size: 1.1rem;
+            color: var(--muted);
+            margin: 0 0 40px 0;
+            line-height: 1.6;
+        }
+
+        .home-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .home-btn {
+            background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            padding: 16px 32px;
+            border-radius: 16px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            font-family: 'Outfit', sans-serif;
+            text-decoration: none;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: pointer;
+        }
+
+        .home-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #000;
+            transform: translateY(-4px);
+            box-shadow: 0 10px 20px -10px var(--accent);
+        }
+        
+        .home-btn.primary {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+        
+        .home-btn.primary:hover {
+            background: #fff;
+            border-color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="home-card">
+        <h1 class="home-title">Board Games Hub</h1>
+        <p class="home-subtitle">Challenge the AI in Tic-Tac-Toe and Chess. Track your streaks, earn achievements, and prove your mastery.</p>
+        <div class="home-actions">
+            {% if logged_in %}
+                <p style="color:var(--text);font-weight:600;margin-bottom:12px;">Welcome back, {{ username }}!</p>
+                <a href="/play" class="home-btn primary">Enter Game Hub</a>
+                <button onclick="logout()" class="home-btn" style="background:transparent;border:1px solid rgba(255,255,255,0.1);">Logout</button>
+            {% else %}
+                <a href="/login" class="home-btn primary">Login to Play</a>
+                <a href="/register" class="home-btn">Create an Account</a>
+            {% endif %}
+        </div>
+
+        <script>
+            async function logout() {
+                try {
+                    await fetch("/api/auth/logout", { method: "POST" });
+                    window.location.reload();
+                } catch (e) {
+                    console.error("Logout failed", e);
+                }
+            }
+        </script>
+    </div>
+</body>
+</html>

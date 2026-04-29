@@ -1,10 +1,16 @@
 const HUMAN = "X";
+const COMPUTER = "O";
 const TICTACTOE_MOVE_ENDPOINT = "/api/move";
 const TICTACTOE_NEW_GAME_ENDPOINT = "/api/new-game";
 const CHESS_MOVE_ENDPOINT = "/api/chess/move";
 const CHESS_NEW_GAME_ENDPOINT = "/api/chess/new-game";
 const RESET_DATA_ENDPOINT = "/api/reset-data";
 const CHESS_SCORE_STORAGE_KEY = "board-games-chess-scoreboard";
+
+let twoPlayerMode = false;
+let chessLastHumanMoveAlg = "";
+let chessLastComputerMoveAlg = "";
+let chessMovePairPending = false;
 
 const MODE_CONFIG = {
     tictactoe: {
@@ -25,14 +31,15 @@ const MODE_CONFIG = {
 
 const gamePickerElement = document.getElementById("game-picker");
 const gameViewElement = document.getElementById("game-view");
-const boardElement = document.getElementById("board");
+// board element is determined per-mode (chess vs ttt)
+let boardElement = document.getElementById("board");
 const statusElement = document.getElementById("status");
 const scoreElement = document.getElementById("score");
 const restartButton = document.getElementById("restart");
 const changeGameButton = document.getElementById("change-game");
 const resetScoreButton = document.getElementById("reset-score");
 const firstPlayerSelect = document.getElementById("first-player");
-const difficultySelect = document.getElementById("difficulty");
+window.difficultySelect = document.getElementById("difficulty");
 const sideCardElement = document.getElementById("side-card");
 const sideIndicatorElement = document.getElementById("side-indicator");
 const sideHelperElement = document.getElementById("side-helper");
@@ -40,6 +47,11 @@ const gameTitleElement = document.getElementById("game-title");
 const gameSubtitleElement = document.getElementById("game-subtitle");
 const setupHintElement = document.getElementById("setup-hint");
 const gameCardButtons = document.querySelectorAll("[data-mode]");
+const twoPlayerToggle = document.getElementById("two-player-toggle");
+const hintBtn = document.getElementById("hint-btn");
+const moveHistoryPanel = document.getElementById("move-history-panel");
+const chessCoordsEl = document.getElementById("chess-coords");
+const tttBoardWrap = document.getElementById("ttt-board-wrap");
 
 function createEmptyScoreboard() {
     return {
@@ -48,6 +60,22 @@ function createEmptyScoreboard() {
         draws: 0,
     };
 }
+
+function getTTTCoord(index) {
+    const labels = ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"];
+    return labels[index] || index;
+}
+
+window.syncGameScoreboard = function(profile) {
+    if (profile && profile.scoreboard) {
+        sessions.tictactoe.scoreboard = profile.scoreboard;
+        // Only update UI if a game mode is already active
+        if (window.gameMode) {
+            updateScore();
+        }
+    }
+};
+
 
 function createEmptyAnalysis() {
     return {
@@ -90,40 +118,54 @@ const sessions = {
     },
 };
 
-let gameMode = null;
+window.gameMode = null;
 let board = [];
-let gameOver = false;
-let boardLocked = false;
+window.gameOver = false;
+window.boardLocked = false;
 let previousCells = [];
 let winningLine = null;
 let activeRequestToken = 0;
 let statusFlashTimer = null;
-let chessFen = "";
+window.chessFen = "";
 let chessTurn = "white";
 let chessPlayerColor = "white";
 let chessLegalMoves = {};
 let chessSelectedSquare = null;
 let chessLastMove = null;
-let moveCount = 0;
+window.moveCount = 0;
 
 function getActiveSession() {
-    return sessions[gameMode];
+    return sessions[window.gameMode];
 }
 
 function updateModePresentation() {
-    const config = MODE_CONFIG[gameMode];
+    const config = MODE_CONFIG[window.gameMode];
     document.title = `${config.title} | Board Games Hub`;
-    document.body.classList.toggle("mode-chess", gameMode === "chess");
+    document.body.classList.toggle("mode-chess", window.gameMode === "chess");
     gameTitleElement.textContent = config.title;
     gameSubtitleElement.textContent = config.subtitle;
     setupHintElement.textContent = config.hint;
     restartButton.textContent = config.restartLabel;
     resetScoreButton.textContent = config.resetLabel;
-    sideCardElement.classList.toggle("is-hidden", gameMode !== "chess");
+    sideCardElement.classList.toggle("is-hidden", window.gameMode !== "chess");
+
+    // Show/hide chess-specific UI
+    const isChess = window.gameMode === "chess";
+    if (chessCoordsEl) chessCoordsEl.classList.toggle("is-hidden", !isChess);
+    if (tttBoardWrap) tttBoardWrap.classList.toggle("is-hidden", isChess);
+    if (moveHistoryPanel) moveHistoryPanel.classList.remove("is-hidden"); // Always show history
+
+    const historyEyebrow = document.querySelector("#move-history-panel .eyebrow");
+    if (historyEyebrow) historyEyebrow.textContent = isChess ? "Chess Notation" : "Move Sequence";
+
+    // Reassign board element for correct mode
+    boardElement = isChess
+        ? document.getElementById("board")
+        : document.getElementById("ttt-board");
 }
 
 function setGameMode(mode) {
-    gameMode = mode in MODE_CONFIG ? mode : "tictactoe";
+    window.gameMode = mode in MODE_CONFIG ? mode : "tictactoe";
     updateModePresentation();
     createBoard();
     updateScore();
@@ -131,11 +173,11 @@ function setGameMode(mode) {
 
 function showGamePicker() {
     activeRequestToken += 1;
-    gameMode = null;
+    window.gameMode = null;
     document.body.classList.remove("mode-chess");
     board = [];
-    gameOver = false;
-    boardLocked = false;
+    window.gameOver = false;
+    window.boardLocked = false;
     winningLine = null;
     previousCells = [];
     chessSelectedSquare = null;
@@ -155,23 +197,27 @@ async function enterGame(mode) {
 
 function createBoard() {
     boardElement.innerHTML = "";
-    boardElement.className = `board ${gameMode === "chess" ? "chess-board" : "tictactoe-board"}`;
+    boardElement.className = `board ${window.gameMode === "chess" ? "chess-board" : "tictactoe-board"}`;
 
-    const totalCells = gameMode === "chess" ? 64 : 9;
+    const totalCells = window.gameMode === "chess" ? 64 : 9;
     for (let index = 0; index < totalCells; index += 1) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `cell ${gameMode === "chess" ? "chess-cell" : "tic-cell"}`;
         button.setAttribute("role", "gridcell");
         button.dataset.index = String(index);
-        button.setAttribute("aria-label", gameMode === "chess" ? `Chess square ${index + 1}` : `Cell ${index + 1}`);
+        button.setAttribute("aria-label", window.gameMode === "chess" ? `Chess square ${index + 1}` : `Cell ${index + 1}`);
         button.addEventListener("click", () => {
-            if (gameMode === "chess") {
+            if (window.gameMode === "chess") {
                 const square = button.dataset.square || "";
                 void handleChessSelection(square);
                 return;
             }
 
+            if (twoPlayerMode) {
+                void handleTwoPlayerMove(index);
+                return;
+            }
             void handleHumanMove(index);
         });
         boardElement.appendChild(button);
@@ -179,8 +225,12 @@ function createBoard() {
 }
 
 function updateScore() {
-    const scoreboard = getActiveSession().scoreboard;
-    scoreElement.textContent = `You ${scoreboard.human} - ${scoreboard.computer} Computer | Draws ${scoreboard.draws}`;
+    const session = getActiveSession();
+    if (!session) return;
+    const scoreboard = session.scoreboard;
+    if (scoreElement) {
+        scoreElement.textContent = `You ${scoreboard.human} - ${scoreboard.computer} Computer | Draws ${scoreboard.draws}`;
+    }
 }
 
 function updateStatus(message) {
@@ -201,15 +251,15 @@ function showTransientStatus(message, restoreMessage = statusElement.textContent
 }
 
 function hasRoundStarted() {
-    if (gameMode === "chess") {
-        return moveCount > 0;
+    if (window.gameMode === "chess") {
+        return window.moveCount > 0;
     }
 
     return board.some((cell) => cell !== "");
 }
 
 function updateControlStates() {
-    const lockSetup = hasRoundStarted() && !gameOver;
+    const lockSetup = hasRoundStarted() && !window.gameOver;
     firstPlayerSelect.disabled = lockSetup;
     difficultySelect.disabled = lockSetup;
 }
@@ -224,7 +274,7 @@ function orientChessBoard(cells, playerColor) {
 }
 
 function updateSideIndicator() {
-    if (gameMode !== "chess") {
+    if (window.gameMode !== "chess") {
         sideCardElement.classList.add("is-hidden");
         return;
     }
@@ -239,7 +289,7 @@ function updateSideIndicator() {
 function renderBoard() {
     const cells = boardElement.querySelectorAll(".cell");
 
-    if (gameMode === "chess") {
+    if (window.gameMode === "chess") {
         const targetSquares = new Set(
             chessSelectedSquare ? (chessLegalMoves[chessSelectedSquare] || []).map((move) => move.to) : []
         );
@@ -262,7 +312,7 @@ function renderBoard() {
             cell.classList.toggle("selected", value.square === chessSelectedSquare);
             cell.classList.toggle("target", targetSquares.has(value.square));
             cell.classList.toggle("recent-move", recentMoveSquares.has(value.square));
-            cell.disabled = gameOver || boardLocked;
+            cell.disabled = window.gameOver || window.boardLocked;
         });
 
         previousCells = board.map((cell) => cell.piece || "");
@@ -275,8 +325,9 @@ function renderBoard() {
         const value = board[index] || "";
         cell.textContent = value;
         cell.dataset.value = value;
-        cell.disabled = gameOver || boardLocked || value !== "";
+        cell.disabled = window.gameOver || window.boardLocked || value !== "" || (twoPlayerMode ? false : false);
         cell.classList.remove("winning");
+        window._currentTTTBoard = [...board];
 
         if (value !== "" && value !== previousCells[index]) {
             cell.classList.add("pop-in");
@@ -305,14 +356,14 @@ function applySessionData(payload) {
         };
     }
 
-    if (gameMode === "tictactoe" && payload.analysis) {
+    if (window.gameMode === "tictactoe" && payload.analysis) {
         session.analysis = {
             ...createEmptyAnalysis(),
             ...payload.analysis,
         };
     }
 
-    if (gameMode === "chess") {
+    if (window.gameMode === "chess") {
         saveChessScoreboard();
     }
 
@@ -320,20 +371,25 @@ function applySessionData(payload) {
 }
 
 function applyRoundData(payload) {
-    if (gameMode === "chess") {
+    if (window.gameMode === "chess") {
         chessPlayerColor = typeof payload.playerColor === "string" ? payload.playerColor : "white";
         board = orientChessBoard(payload.board, chessPlayerColor);
-        gameOver = Boolean(payload.gameOver);
-        chessFen = typeof payload.fen === "string" ? payload.fen : "";
+        window.gameOver = Boolean(payload.gameOver);
+        window.chessFen = typeof payload.fen === "string" ? payload.fen : "";
         chessTurn = typeof payload.turn === "string" ? payload.turn : "white";
         chessLegalMoves = payload.legalMoves && typeof payload.legalMoves === "object" ? payload.legalMoves : {};
         chessLastMove = payload.lastMove && typeof payload.lastMove === "object" ? payload.lastMove : null;
+        if (payload.moveQuality) {
+            sessions.chess.moveQualities = sessions.chess.moveQualities || [];
+            sessions.chess.moveQualities.push(payload.moveQuality);
+        }
+        if (typeof window.buildChessCoords === "function") window.buildChessCoords(chessPlayerColor);
         chessSelectedSquare = null;
-        moveCount = Number.isInteger(payload.moveCount) ? payload.moveCount : 0;
+        window.moveCount = Number.isInteger(payload.moveCount) ? payload.moveCount : 0;
         winningLine = null;
     } else {
         board = Array.isArray(payload.board) ? [...payload.board] : Array(9).fill("");
-        gameOver = Boolean(payload.gameOver);
+        window.gameOver = Boolean(payload.gameOver);
         winningLine = Array.isArray(payload.winningLine) ? payload.winningLine : null;
 
         if (typeof payload.firstPlayer === "string") {
@@ -350,19 +406,24 @@ function applyRoundData(payload) {
     updateSideIndicator();
 
     if (payload.gameOver) {
-        window.setTimeout(() => window.alert(payload.status || "Game Over!"), 50);
-    } else if (gameMode === "chess" && payload.isCheck) {
-        window.setTimeout(() => window.alert("Check!"), 50);
+        window.setTimeout(() => {
+            if (typeof window.showGameOverModal === "function") {
+                window.showGameOverModal(payload, window.gameMode, twoPlayerMode);
+            }
+        }, 300);
+    } else if (window.gameMode === "chess" && payload.isCheck) {
+        updateStatus("⚠️ Check! " + (payload.status || ""));
+        if (typeof window.SoundFX !== "undefined") window.SoundFX.check();
     }
 }
 
 function syncBoardLock(payload) {
-    if (gameMode === "chess") {
-        boardLocked = !payload.gameOver && payload.turn !== payload.playerColor;
+    if (window.gameMode === "chess") {
+        window.boardLocked = !payload.gameOver && payload.turn !== payload.playerColor;
         return;
     }
 
-    boardLocked = false;
+    window.boardLocked = false;
 }
 
 async function postJson(url, data) {
@@ -394,8 +455,47 @@ async function postJson(url, data) {
     return payload;
 }
 
+// Two-player local mode
+let twoPlayerTurn = "X";
+async function handleTwoPlayerMove(index) {
+    if (window.gameOver || board[index] !== "") return;
+    board[index] = twoPlayerTurn;
+    winningLine = null;
+    renderBoard();
+    if (window.SoundFX) window.SoundFX.move();
+    window._currentTTTBoard = [...board];
+
+    // Check win/draw
+    const WINS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+    const winner = WINS.some(c=>c.every(i=>board[i]===twoPlayerTurn)) ? twoPlayerTurn : null;
+    const isDraw = !winner && board.every(c=>c!=="");
+    if (winner || isDraw) {
+        window.gameOver = true;
+        if (winner) {
+            const wLabel = twoPlayerTurn === "X" ? "Player 1 wins!" : "Player 2 wins!";
+            updateStatus(wLabel);
+            const line = WINS.find(c=>c.every(i=>board[i]===twoPlayerTurn));
+            winningLine = line || null;
+            renderBoard();
+            if (typeof window.showGameOverModal === "function") {
+                const fakePayload = { status: wLabel, gameOver:true, draw:false, analysis:{accuracyScore:50,totalMoves:board.filter(c=>c).length} };
+                setTimeout(() => window.showGameOverModal(fakePayload, window.gameMode, true), 300);
+            }
+        } else {
+            updateStatus("It's a draw!");
+            if (typeof window.showGameOverModal === "function") {
+                const fakePayload = { status:"It's a draw!", gameOver:true, draw:true, analysis:{accuracyScore:50,totalMoves:9} };
+                setTimeout(() => window.showGameOverModal(fakePayload, window.gameMode, true), 300);
+            }
+        }
+        return;
+    }
+    twoPlayerTurn = twoPlayerTurn === "X" ? "O" : "X";
+    updateStatus(twoPlayerTurn === "X" ? "Player 1's turn (X)" : "Player 2's turn (O)");
+}
+
 async function handleHumanMove(index) {
-    if (gameOver || boardLocked || board[index] !== "") {
+    if (window.gameOver || window.boardLocked || board[index] !== "") {
         return;
     }
 
@@ -403,9 +503,11 @@ async function handleHumanMove(index) {
     const requestToken = ++activeRequestToken;
     board[index] = HUMAN;
     winningLine = null;
-    boardLocked = true;
+    window.boardLocked = true;
     renderBoard();
+    if (window.SoundFX) window.SoundFX.move();
     updateStatus("Computer is thinking...");
+    window._currentTTTBoard = [...board];
 
     try {
         const payload = await postJson(TICTACTOE_MOVE_ENDPOINT, {
@@ -421,6 +523,11 @@ async function handleHumanMove(index) {
             return;
         }
 
+        const compIndex = payload.board.findIndex((cell, i) => cell === COMPUTER && board[i] === "");
+        if (typeof window.pushMoveHistory === "function") {
+            window.pushMoveHistory(getTTTCoord(index), compIndex !== -1 ? getTTTCoord(compIndex) : "");
+        }
+
         applySessionData(payload);
         applyRoundData(payload);
         syncBoardLock(payload);
@@ -431,8 +538,8 @@ async function handleHumanMove(index) {
         }
 
         board = requestBoard;
-        gameOver = false;
-        boardLocked = false;
+        window.gameOver = false;
+        window.boardLocked = false;
         winningLine = null;
         renderBoard();
         updateStatus(error.message || "Something went wrong.");
@@ -440,7 +547,7 @@ async function handleHumanMove(index) {
 }
 
 async function handleChessSelection(square) {
-    if (!square || gameOver || boardLocked) {
+    if (!square || window.gameOver || window.boardLocked) {
         return;
     }
 
@@ -474,31 +581,49 @@ async function handleChessSelection(square) {
 }
 
 async function submitChessMove(fromSquare, move) {
+    // Pawn promotion dialog
+    const fromIndex0 = board.findIndex(c => c.square === fromSquare);
+    const pawnPiece = fromIndex0 !== -1 ? board[fromIndex0].piece : "";
+    const isPawnPromotion = (pawnPiece === "P" && move.to && move.to[1] === "8") ||
+                            (pawnPiece === "p" && move.to && move.to[1] === "1");
+    let promotion = move.promotion || "q";
+    if (isPawnPromotion && typeof window.showPromotionDialog === "function") {
+        promotion = await window.showPromotionDialog();
+    }
+
     const requestToken = ++activeRequestToken;
     const previousSelection = chessSelectedSquare;
     const requestBoard = board.map(cell => ({ ...cell }));
     const previousLastMove = chessLastMove ? { ...chessLastMove } : null;
 
-    boardLocked = true;
+    window.boardLocked = true;
     chessSelectedSquare = null;
 
     const fromIndex = board.findIndex(c => c.square === fromSquare);
     const toIndex = board.findIndex(c => c.square === move.to);
+    const isCapture = toIndex !== -1 && board[toIndex].piece !== "";
     if (fromIndex !== -1 && toIndex !== -1) {
         board[toIndex] = { ...board[toIndex], piece: board[fromIndex].piece, icon: board[fromIndex].icon, color: board[fromIndex].color };
         board[fromIndex] = { ...board[fromIndex], piece: "", icon: "", color: "" };
         chessLastMove = { from: fromSquare, to: move.to };
     }
 
+    if (window.SoundFX) { isCapture ? window.SoundFX.capture() : window.SoundFX.move(); }
+
+    // Track human move for history (algebraic-style)
+    chessLastHumanMoveAlg = fromSquare + "→" + move.to + (isPawnPromotion ? "=" + promotion.toUpperCase() : "");
+    chessMovePairPending = true;
+
     renderBoard();
     updateStatus("Computer is thinking...");
+    const _promotion = promotion;
 
     try {
         const payload = await postJson(CHESS_MOVE_ENDPOINT, {
-            fen: chessFen,
+            fen: window.chessFen,
             fromSquare,
             toSquare: move.to,
-            promotion: move.promotion || "q",
+            promotion: _promotion || "q",
             playerColor: chessPlayerColor,
             difficulty: difficultySelect.value,
             scoreboard: sessions.chess.scoreboard,
@@ -509,6 +634,15 @@ async function submitChessMove(fromSquare, move) {
         }
 
         applySessionData(payload);
+        // Track computer move for history
+        if (chessMovePairPending && payload.lastMove) {
+            const lm = payload.lastMove;
+            const compAlg = lm.from + "→" + lm.to;
+            if (typeof window.pushMoveHistory === "function") {
+                window.pushMoveHistory(chessLastHumanMoveAlg, compAlg, payload.moveQuality);
+            }
+            chessMovePairPending = false;
+        }
         applyRoundData(payload);
         syncBoardLock(payload);
         renderBoard();
@@ -520,34 +654,53 @@ async function submitChessMove(fromSquare, move) {
         board = requestBoard;
         chessLastMove = previousLastMove;
         chessSelectedSquare = previousSelection;
-        boardLocked = false;
+        window.boardLocked = false;
+        chessMovePairPending = false;
         renderBoard();
         updateStatus(error.message || "Unable to play that chess move.");
     }
 }
 
 async function startRound() {
+    if (typeof currentUser !== "undefined" && !currentUser) {
+        if (typeof showModal === "function") showModal();
+        return;
+    }
+
     const requestToken = ++activeRequestToken;
     board = [];
-    gameOver = false;
-    boardLocked = true;
+    window.gameOver = false;
+    window.boardLocked = true;
     winningLine = null;
     previousCells = [];
     chessSelectedSquare = null;
     chessLastMove = null;
-    moveCount = 0;
+    window.moveCount = 0;
+    twoPlayerTurn = "X";
+    chessMovePairPending = false;
+    chessLastHumanMoveAlg = "";
 
-    if (gameMode === "tictactoe") {
+    if (typeof window.resetMoveHistory === "function") window.resetMoveHistory();
+
+    twoPlayerMode = twoPlayerToggle ? twoPlayerToggle.checked : false;
+    if (twoPlayerMode && window.gameMode === "tictactoe") {
+        updateStatus("Player 1's turn (X)");
+    }
+
+    if (window.gameMode === "tictactoe") {
         sessions.tictactoe.analysis = createEmptyAnalysis();
+        window._currentTTTBoard = Array(9).fill("");
+    } else if (window.gameMode === "chess") {
+        sessions.chess.moveQualities = [];
     }
 
     renderBoard();
-    updateStatus(gameMode === "chess" ? "Setting up the board..." : "Starting round...");
+    updateStatus(window.gameMode === "chess" ? "Setting up the board..." : "Starting round...");
 
     try {
         const payload = await postJson(
-            gameMode === "chess" ? CHESS_NEW_GAME_ENDPOINT : TICTACTOE_NEW_GAME_ENDPOINT,
-            gameMode === "chess"
+            window.gameMode === "chess" ? CHESS_NEW_GAME_ENDPOINT : TICTACTOE_NEW_GAME_ENDPOINT,
+            window.gameMode === "chess"
                 ? {
                     firstPlayer: firstPlayerSelect.value,
                     difficulty: difficultySelect.value,
@@ -574,9 +727,9 @@ async function startRound() {
             return;
         }
 
-        board = gameMode === "chess" ? [] : Array(9).fill("");
-        gameOver = false;
-        boardLocked = false;
+        board = window.gameMode === "chess" ? [] : Array(9).fill("");
+        window.gameOver = false;
+        window.boardLocked = false;
         winningLine = null;
         renderBoard();
         updateStatus(error.message || "Unable to start a new game.");
@@ -587,7 +740,7 @@ async function resetAllData() {
     const restoreMessage = statusElement.textContent;
 
     try {
-        if (gameMode === "chess") {
+        if (window.gameMode === "chess") {
             sessions.chess.scoreboard = createEmptyScoreboard();
             saveChessScoreboard();
             updateScore();
@@ -624,7 +777,7 @@ gameCardButtons.forEach((button) => {
 });
 
 firstPlayerSelect.addEventListener("change", () => {
-    if (hasRoundStarted() && !gameOver) {
+    if (hasRoundStarted() && !window.gameOver) {
         showTransientStatus("Opening order will apply next game.");
         return;
     }
@@ -633,12 +786,24 @@ firstPlayerSelect.addEventListener("change", () => {
 });
 
 difficultySelect.addEventListener("change", () => {
-    if (hasRoundStarted() && !gameOver) {
+    if (hasRoundStarted() && !window.gameOver) {
         showTransientStatus("Difficulty change will apply next game.");
         return;
     }
 
     void startRound();
 });
+
+// Accuracy Click
+const scoreBox = document.getElementById("score");
+if (scoreBox) {
+    scoreBox.style.cursor = "pointer";
+    scoreBox.title = "Click to view detailed accuracy analysis";
+    scoreBox.addEventListener("click", () => {
+        if (typeof window.showAccuracyModal === "function") {
+            window.showAccuracyModal();
+        }
+    });
+}
 
 showGamePicker();

@@ -9,8 +9,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, session, redirect
 from werkzeug.exceptions import HTTPException
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from chess_logic import (
     apply_human_move as apply_chess_human_move,
@@ -54,6 +55,7 @@ DATABASE_FILE = DATA_DIR / "game_history.db"
 LEGACY_SAVE_FILE = DATA_DIR / "saved_game.json"
 
 app = Flask(__name__, template_folder=".", static_folder=".", static_url_path="")
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key-12345")
 
 
 @app.errorhandler(HTTPException)
@@ -286,10 +288,13 @@ def _connect_db():
 
 def _create_game_history_table(connection):
     """Create the readable per-game SQLite schema."""
+    _ensure_users_table(connection)
+    # Create game history table with user_id link
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS game_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
             saved_at TEXT NOT NULL,
             result TEXT NOT NULL,
             winner TEXT,
@@ -307,10 +312,60 @@ def _create_game_history_table(connection):
             overall_draws INTEGER NOT NULL,
             overall_ai_accuracy REAL NOT NULL,
             overall_ai_performance REAL NOT NULL,
-            overall_record TEXT NOT NULL
+            overall_record TEXT NOT NULL,
+            game_mode TEXT DEFAULT 'tictactoe',
+            FOREIGN KEY (user_id) REFERENCES users(id)
         )
         """
     )
+
+
+def _ensure_users_table(connection):
+    """Create users table if needed and migrate older auth schemas safely."""
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            security_question TEXT NOT NULL,
+            security_answer_hash TEXT NOT NULL,
+            current_streak INTEGER DEFAULT 0,
+            best_streak INTEGER DEFAULT 0,
+            achievements TEXT DEFAULT '[]'
+        )
+        """
+    )
+
+    user_columns = [row["name"] for row in connection.execute("PRAGMA table_info(users)").fetchall()]
+    if "password_hash" not in user_columns:
+        connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        if "password" in user_columns:
+            rows = connection.execute("SELECT id, password FROM users").fetchall()
+            for row in rows:
+                legacy_password = row["password"] or ""
+                connection.execute(
+                    "UPDATE users SET password_hash = ? WHERE id = ?",
+                    (generate_password_hash(legacy_password), row["id"]),
+                )
+
+    if "security_question" not in user_columns:
+        connection.execute("ALTER TABLE users ADD COLUMN security_question TEXT DEFAULT ''")
+    if "security_answer_hash" not in user_columns:
+        connection.execute("ALTER TABLE users ADD COLUMN security_answer_hash TEXT DEFAULT ''")
+    if "current_streak" not in user_columns:
+        connection.execute("ALTER TABLE users ADD COLUMN current_streak INTEGER DEFAULT 0")
+    if "best_streak" not in user_columns:
+        connection.execute("ALTER TABLE users ADD COLUMN best_streak INTEGER DEFAULT 0")
+    if "achievements" not in user_columns:
+        connection.execute("ALTER TABLE users ADD COLUMN achievements TEXT DEFAULT '[]'")
+
+    connection.execute("UPDATE users SET password_hash = '' WHERE password_hash IS NULL")
+    connection.execute("UPDATE users SET security_question = '' WHERE security_question IS NULL")
+    connection.execute("UPDATE users SET security_answer_hash = '' WHERE security_answer_hash IS NULL")
+    connection.execute("UPDATE users SET current_streak = 0 WHERE current_streak IS NULL")
+    connection.execute("UPDATE users SET best_streak = 0 WHERE best_streak IS NULL")
+    connection.execute("UPDATE users SET achievements = '[]' WHERE achievements IS NULL")
 
 
 def _game_result_from_state(state):
@@ -332,7 +387,8 @@ def _performance_for_result(result):
 
 
 def _get_overall_metrics(connection):
-    """Return overall totals and averages across all stored completed games."""
+    """Return overall totals and averages for the current user across all stored games."""
+    user_id = session.get("user_id")
     row = connection.execute(
         """
         SELECT
@@ -343,7 +399,9 @@ def _get_overall_metrics(connection):
             COALESCE(AVG(game_ai_accuracy), 0) AS overall_ai_accuracy,
             COALESCE(AVG(game_ai_performance), 0) AS overall_ai_performance
         FROM game_history
-        """
+        WHERE user_id = ?
+        """,
+        (user_id,)
     ).fetchone()
 
     scoreboard = {
@@ -361,11 +419,26 @@ def _get_overall_metrics(connection):
     return scoreboard, analysis
 
 
-def _insert_completed_game(connection, state, round_analysis, saved_at=None):
-    """Insert one completed game row with per-game and overall stats."""
+def _insert_completed_game(connection, state, round_analysis, game_mode, saved_at=None):
+    """Insert one completed game row linked to current user, and update user statistics."""
+    user_id = session.get("user_id")
     normalized_state = _validate_saved_state(state)
     normalized_round_analysis = _normalize_analysis(round_analysis)
     result = _game_result_from_state(normalized_state)
+    
+    # Update user streaks
+    if user_id:
+        user = connection.execute("SELECT current_streak, best_streak FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user:
+            cur, best = user["current_streak"], user["best_streak"]
+            if result == "human_win":
+                cur += 1
+            elif result == "computer_win":
+                cur = 0
+            # draws don't break/increment streak
+            best = max(best, cur)
+            connection.execute("UPDATE users SET current_streak = ?, best_streak = ? WHERE id = ?", (cur, best, user_id))
+
     game_ai_accuracy = round(
         (normalized_round_analysis["optimalMoves"] / normalized_round_analysis["totalMoves"]) * 100,
         1,
@@ -397,6 +470,7 @@ def _insert_completed_game(connection, state, round_analysis, saved_at=None):
     connection.execute(
         """
         INSERT INTO game_history (
+            user_id,
             saved_at,
             result,
             winner,
@@ -414,11 +488,13 @@ def _insert_completed_game(connection, state, round_analysis, saved_at=None):
             overall_draws,
             overall_ai_accuracy,
             overall_ai_performance,
-            overall_record
+            overall_record,
+            game_mode
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
+            user_id,
             saved_at or _timestamp(),
             result,
             normalized_state["winner"] or "",
@@ -437,6 +513,7 @@ def _insert_completed_game(connection, state, round_analysis, saved_at=None):
             overall_ai_accuracy,
             overall_ai_performance,
             overall_record,
+            game_mode
         ),
     )
 
@@ -460,7 +537,7 @@ def _migrate_json_blob_table(connection):
         if not normalized_state["gameOver"]:
             continue
 
-        _insert_completed_game(connection, normalized_state, normalized_state["analysis"], row["saved_at"])
+        _insert_completed_game(connection, normalized_state, normalized_state["analysis"], "tictactoe", saved_at=row["saved_at"])
 
     connection.execute("DROP TABLE game_history_legacy")
 
@@ -506,7 +583,7 @@ def _migrate_snapshot_table(connection):
                 "totalMoves": row["ai_total_moves"],
             },
         }
-        _insert_completed_game(connection, state, state["analysis"], row["saved_at"])
+        _insert_completed_game(connection, state, state["analysis"], "tictactoe", saved_at=row["saved_at"])
 
     connection.execute("DROP TABLE game_history_snapshot_legacy")
 
@@ -526,6 +603,15 @@ def _init_db():
 
         if "event" in columns or "board" in columns or "is_current" in columns:
             _migrate_snapshot_table(connection)
+            return
+
+        if "user_id" not in columns:
+            connection.execute("ALTER TABLE game_history ADD COLUMN user_id INTEGER REFERENCES users(id)")
+        
+        if "game_mode" not in columns:
+            connection.execute("ALTER TABLE game_history ADD COLUMN game_mode TEXT DEFAULT 'tictactoe'")
+
+        _ensure_users_table(connection)
 
 
 def _database_has_rows():
@@ -566,16 +652,17 @@ def _migrate_legacy_json_if_needed():
                 connection,
                 normalized_state,
                 normalized_state["analysis"],
-                entry["savedAt"],
+                "tictactoe",
+                saved_at=entry["savedAt"],
             )
 
 
-def _persist_completed_game(state, round_analysis):
+def _persist_completed_game(state, round_analysis, game_mode):
     """Persist one completed game to the database."""
     _init_db()
     _migrate_legacy_json_if_needed()
     with _connect_db() as connection:
-        _insert_completed_game(connection, state, round_analysis)
+        _insert_completed_game(connection, state, round_analysis, game_mode)
 
 
 def _load_latest_completed_game():
@@ -792,8 +879,198 @@ def _get_lan_ip():
 
 @app.get("/")
 def index():
-    """Serve the main application page."""
-    return render_template("index.html")
+    """Serve the home page."""
+    return render_template(
+        "home.html", 
+        logged_in=bool(session.get("user_id")), 
+        username=session.get("username")
+    )
+
+
+@app.get("/login")
+def login_page():
+    """Serve the login page."""
+    if session.get("user_id"):
+        return redirect("/")
+    return render_template("login.html")
+
+
+@app.get("/register")
+def register_page():
+    """Serve the register page."""
+    if session.get("user_id"):
+        return redirect("/")
+    return render_template("register.html")
+
+
+@app.get("/play")
+def play():
+    """Serve the main game application if logged in."""
+    if not session.get("user_id"):
+        return redirect("/login")
+    return render_template("play.html")
+
+
+# --- AUTH API ---
+
+@app.post("/api/auth/register")
+def register():
+    _init_db()
+    payload = request.get_json(silent=True) or {}
+    username = payload.get("username", "").strip()
+    password = payload.get("password", "")
+    question = payload.get("security_question", "").strip()
+    answer = payload.get("security_answer", "").strip().lower() # lowercase for verification
+
+    if not username or not password or not question or not answer:
+        return jsonify({"error": "All fields are required."}), 400
+
+    try:
+        with _connect_db() as connection:
+            connection.execute(
+                "INSERT INTO users (username, password_hash, security_question, security_answer_hash) VALUES (?, ?, ?, ?)",
+                (username, generate_password_hash(password), question, generate_password_hash(answer))
+            )
+            user_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+            session["user_id"] = user_id
+            session["username"] = username
+            return jsonify({"message": "User registered successfully."})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Username already exists."}), 400
+
+
+@app.post("/api/auth/login")
+def login():
+    _init_db()
+    payload = request.get_json(silent=True) or {}
+    username = payload.get("username", "").strip()
+    password = payload.get("password", "")
+
+    with _connect_db() as connection:
+        user = connection.execute("SELECT id, password_hash FROM users WHERE username = ?", (username,)).fetchone()
+        if user:
+            stored_password = user["password_hash"] or ""
+            password_ok = False
+            try:
+                password_ok = check_password_hash(stored_password, password)
+            except ValueError:
+                # Backward compatibility for legacy plaintext passwords.
+                password_ok = stored_password == password
+            if password_ok:
+                session["user_id"] = user["id"]
+                session["username"] = username
+                return jsonify({"message": "Login successful."})
+    
+    return jsonify({"error": "Invalid username or password."}), 401
+
+
+@app.post("/api/auth/logout")
+def logout():
+    session.clear()
+    return jsonify({"message": "Logged out."})
+
+
+@app.get("/api/auth/question")
+def get_security_question():
+    username = request.args.get("username", "").strip()
+    with _connect_db() as connection:
+        user = connection.execute("SELECT security_question FROM users WHERE username = ?", (username,)).fetchone()
+        if user:
+            return jsonify({"question": user["security_question"]})
+    return jsonify({"error": "User not found."}), 404
+
+
+@app.post("/api/auth/forgot-password")
+def forgot_password():
+    payload = request.get_json(silent=True) or {}
+    username = payload.get("username", "").strip()
+    answer = payload.get("security_answer", "").strip().lower()
+    new_password = payload.get("new_password", "")
+
+    with _connect_db() as connection:
+        user = connection.execute("SELECT id, security_answer_hash FROM users WHERE username = ?", (username,)).fetchone()
+        if user and check_password_hash(user["security_answer_hash"], answer):
+            connection.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (generate_password_hash(new_password), user["id"])
+            )
+            return jsonify({"message": "Password updated successfully."})
+    
+    return jsonify({"error": "Incorrect security answer."}), 401
+
+
+@app.get("/api/user/profile")
+def get_profile():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    try:
+        with _connect_db() as connection:
+            user = connection.execute("SELECT username, current_streak, best_streak, achievements FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not user:
+                return jsonify({"error": "User not found"}), 404
+            scoreboard, analysis = _get_overall_metrics(connection)
+            
+        return jsonify({
+            "username": user["username"],
+            "current_streak": user["current_streak"],
+            "best_streak": user["best_streak"],
+            "achievements": json.loads(user["achievements"] or "[]"),
+            "scoreboard": scoreboard,
+            "analysis": analysis
+        })
+    except Exception as e:
+        app.logger.error(f"Profile error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/user/achievements")
+def update_achievements():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    payload = request.get_json(silent=True) or {}
+    achievements = payload.get("achievements", [])
+    
+    with _connect_db() as connection:
+        connection.execute("UPDATE users SET achievements = ? WHERE id = ?", (json.dumps(achievements), user_id))
+    
+    return jsonify({"message": "Achievements updated."})
+
+
+@app.get("/api/history")
+def get_history():
+    """Return a list of recently completed games for the current user."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"games": []})
+
+    _init_db()
+    _migrate_legacy_json_if_needed()
+    with _connect_db() as connection:
+        rows = connection.execute(
+            """
+            SELECT saved_at, result, difficulty, game_mode 
+            FROM game_history 
+            WHERE user_id = ?
+            ORDER BY id DESC 
+            LIMIT 50
+            """,
+            (user_id,)
+        ).fetchall()
+        
+    games = [
+        {
+            "saved_at": row["saved_at"],
+            "result": row["result"],
+            "difficulty": row["difficulty"],
+            "game_mode": row["game_mode"] or "tictactoe"
+        }
+        for row in rows
+    ]
+    return jsonify({"games": games})
 
 
 @app.post("/api/new-game")
@@ -861,7 +1138,7 @@ def play_move():
             first_player=first_player,
             difficulty=difficulty,
         )
-        _persist_completed_game(state, analysis)
+        _persist_completed_game(state, analysis, "tictactoe")
         state["scoreboard"] = _get_overall_scoreboard()
         state["analysis"] = _get_overall_analysis()
         return jsonify(state)
@@ -875,7 +1152,7 @@ def play_move():
             first_player=first_player,
             difficulty=difficulty,
         )
-        _persist_completed_game(state, analysis)
+        _persist_completed_game(state, analysis, "tictactoe")
         state["scoreboard"] = _get_overall_scoreboard()
         state["analysis"] = _get_overall_analysis()
         return jsonify(state)
@@ -890,7 +1167,7 @@ def play_move():
             first_player=first_player,
             difficulty=difficulty,
         )
-        _persist_completed_game(state, analysis)
+        _persist_completed_game(state, analysis, "tictactoe")
         state["scoreboard"] = _get_overall_scoreboard()
         state["analysis"] = _get_overall_analysis()
         return jsonify(state)
@@ -911,7 +1188,7 @@ def play_move():
             first_player=first_player,
             difficulty=difficulty,
         )
-        _persist_completed_game(state, analysis)
+        _persist_completed_game(state, analysis, "tictactoe")
         state["scoreboard"] = _get_overall_scoreboard()
         state["analysis"] = _get_overall_analysis()
         return jsonify(state)
@@ -925,7 +1202,7 @@ def play_move():
             first_player=first_player,
             difficulty=difficulty,
         )
-        _persist_completed_game(state, analysis)
+        _persist_completed_game(state, analysis, "tictactoe")
         state["scoreboard"] = _get_overall_scoreboard()
         state["analysis"] = _get_overall_analysis()
         return jsonify(state)
@@ -1002,7 +1279,7 @@ def play_chess_move():
             scoreboard=final_scoreboard,
             last_move=human_move,
         )
-        _persist_completed_game(state, {"optimalMoves": 0, "totalMoves": len(board.move_stack)})
+        _persist_completed_game(state, {"optimalMoves": 0, "totalMoves": len(board.move_stack)}, "chess")
         return jsonify(state)
 
     if board.turn != _chess_turn_from_color(player_color):
@@ -1026,7 +1303,7 @@ def play_chess_move():
             scoreboard=final_scoreboard,
             last_move=computer_move,
         )
-        _persist_completed_game(state, {"optimalMoves": 0, "totalMoves": len(board.move_stack)})
+        _persist_completed_game(state, {"optimalMoves": 0, "totalMoves": len(board.move_stack)}, "chess")
         return jsonify(state)
 
     state = build_chess_game_state(

@@ -122,7 +122,7 @@ def get_winner(board):
     return "white" if outcome.winner == chess.WHITE else "black"
 
 
-def build_game_state(board, status, *, player_color="white", difficulty="medium", scoreboard=None, last_move=None):
+def build_game_state(board, status, *, player_color="white", difficulty="medium", scoreboard=None, last_move=None, move_quality=None):
     """Return the chess game state payload for the frontend."""
     player_color = normalize_player_color(player_color)
     difficulty = normalize_difficulty(difficulty)
@@ -141,6 +141,7 @@ def build_game_state(board, status, *, player_color="white", difficulty="medium"
         "scoreboard": scoreboard,
         "legalMoves": list_legal_moves(board, player_color),
         "lastMove": serialize_move(last_move),
+        "moveQuality": move_quality,
         "isCheck": board.is_check(),
         "moveCount": len(board.move_stack),
     }
@@ -180,8 +181,36 @@ def apply_human_move(board, from_square, to_square, player_color, promotion="q")
     if move not in board.legal_moves:
         raise ValueError("That chess move is not legal.")
 
+    # Classify before pushing
+    quality = _classify_move(board, move)
     board.push(move)
-    return move
+    return move, quality
+
+
+def _classify_move(board, move):
+    """Return 'best', 'great', 'good', 'inaccuracy', or 'blunder'."""
+    try:
+        best_move = choose_computer_move(board, "medium")
+        if move == best_move:
+            return "best"
+        
+        perspective = board.turn
+        score_before = _minimax(board, depth=1, alpha=float("-inf"), beta=float("inf"), maximizing_player=True, perspective=perspective)
+        
+        board.push(move)
+        score_after = -_minimax(board, depth=1, alpha=float("-inf"), beta=float("inf"), maximizing_player=True, perspective=not perspective)
+        board.pop()
+        
+        diff = score_after - score_before
+        if diff <= -200:
+            return "blunder"
+        if diff <= -50:
+            return "inaccuracy"
+        if diff >= 100:
+            return "great"
+        return "good"
+    except Exception:
+        return "good"
 
 
 def choose_computer_move(board, difficulty):

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Board Games Hub - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: var(--bg);
+            background-image: url("{{ url_for('static', filename='images/auth_background_1777459702926.png') }}");
+            background-size: cover;
+            background-position: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 24px;
+        }
+        
+        .auth-container {
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(25px) saturate(180%);
+            -webkit-backdrop-filter: blur(25px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 32px;
+            padding: 48px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            width: min(440px, 100%);
+        }
+
+        .auth-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 0 0 24px 0;
+            color: #fff;
+            text-align: center;
+        }
+
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .auth-form input {
+            width: 100%;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #fff;
+            padding: 14px;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: border-color 0.2s;
+        }
+
+        .auth-form input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .auth-links {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 16px;
+        }
+
+        .auth-error { color: #ef4444; font-size: 0.85rem; margin: 0; text-align: center; }
+        .auth-success { color: #34d399; font-size: 0.85rem; margin: 0; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <!-- LOGIN FORM -->
+        <div id="login-section">
+            <h1 class="auth-title">Welcome Back</h1>
+            <form id="login-form" class="auth-form">
+                <input type="text" id="login-username" placeholder="Username" required>
+                <input type="password" id="login-password" placeholder="Password" required>
+                <button type="submit" class="primary-button">Login</button>
+                <p id="login-error" class="auth-error"></p>
+                <div class="auth-links">
+                    <button type="button" id="show-forgot-btn" class="text-button">Forgot Password?</button>
+                    <a href="/register" class="text-button">Create Account</a>
+                </div>
+            </form>
+        </div>
+
+        <!-- FORGOT PASSWORD FORM -->
+        <div id="forgot-section" class="is-hidden">
+            <h1 class="auth-title">Reset Password</h1>
+            <form id="forgot-form" class="auth-form">
+                <input type="text" id="forgot-username" placeholder="Username" required>
+                <button type="button" id="get-question-btn" class="secondary-button">Get Security Question</button>
+                
+                <div id="forgot-question-block" class="is-hidden" style="display:flex;flex-direction:column;gap:16px;">
+                    <p id="forgot-question-text" style="color:var(--muted);font-size:0.9rem;margin:0;"></p>
+                    <input type="text" id="forgot-answer" placeholder="Security Answer" required>
+                    <input type="password" id="forgot-new-password" placeholder="New Password" required>
+                    <button type="submit" class="primary-button">Reset Password</button>
+                </div>
+                <p id="forgot-error" class="auth-error"></p>
+                <p id="forgot-success" class="auth-success"></p>
+                <div class="auth-links" style="justify-content:center;">
+                    <button type="button" id="back-to-login-btn" class="text-button">Back to Login</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const loginSection = document.getElementById("login-section");
+        const forgotSection = document.getElementById("forgot-section");
+        
+        document.getElementById("show-forgot-btn").addEventListener("click", () => {
+            loginSection.classList.add("is-hidden");
+            forgotSection.classList.remove("is-hidden");
+        });
+        
+        document.getElementById("back-to-login-btn").addEventListener("click", () => {
+            forgotSection.classList.add("is-hidden");
+            loginSection.classList.remove("is-hidden");
+        });
+
+        // Login Logic
+        document.getElementById("login-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById("login-error");
+            errEl.textContent = "";
+            const username = document.getElementById("login-username").value;
+            const password = document.getElementById("login-password").value;
+
+            try {
+                const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    window.location.href = "/";
+                } else {
+                    errEl.textContent = data.error || "Login failed.";
+                }
+            } catch (err) {
+                errEl.textContent = "Network error.";
+            }
+        });
+
+        // Forgot Password Logic
+        const getQBtn = document.getElementById("get-question-btn");
+        getQBtn.addEventListener("click", async () => {
+            const username = document.getElementById("forgot-username").value;
+            const errEl = document.getElementById("forgot-error");
+            if (!username) { errEl.textContent = "Please enter your username."; return; }
+            errEl.textContent = "";
+            
+            try {
+                const res = await fetch(`/api/auth/question?username=${encodeURIComponent(username)}`);
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById("forgot-question-text").textContent = `Question: ${data.question}`;
+                    document.getElementById("forgot-question-block").classList.remove("is-hidden");
+                    getQBtn.classList.add("is-hidden");
+                } else {
+                    errEl.textContent = data.error || "User not found.";
+                }
+            } catch (err) {
+                errEl.textContent = "Network error.";
+            }
+        });
+
+        document.getElementById("forgot-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById("forgot-error");
+            const succEl = document.getElementById("forgot-success");
+            errEl.textContent = ""; succEl.textContent = "";
+
+            const username = document.getElementById("forgot-username").value;
+            const answer = document.getElementById("forgot-answer").value;
+            const newPassword = document.getElementById("forgot-new-password").value;
+
+            try {
+                const res = await fetch("/api/auth/forgot-password", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, security_answer: answer, new_password: newPassword })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    succEl.textContent = "Password reset successfully! Redirecting...";
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    errEl.textContent = data.error || "Failed to reset password.";
+                }
+            } catch (err) {
+                errEl.textContent = "Network error.";
+            }
+        });
+    </script>
+</body>
+</html>

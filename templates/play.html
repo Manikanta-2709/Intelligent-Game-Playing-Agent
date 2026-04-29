@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Board Games Hub — Play Tic-Tac-Toe and Chess against a smart AI. Track your performance, earn achievements, and see how good you really are.">
+    <title>Board Games Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <!-- Animated particle background -->
+    <canvas id="particles-canvas" aria-hidden="true"></canvas>
+
+    <!-- ===== GAME PICKER ===== -->
+    <section id="game-picker" class="picker-shell">
+        <div class="picker-panel">
+            <p class="eyebrow">Choose Your Game</p>
+            <h1>Board Games Hub</h1>
+            <p class="subtitle">
+                Pick a game to start. The page will open the matching board and automatically fit it to your screen size.
+            </p>
+
+            <div class="game-cards">
+                <button class="game-card" type="button" id="pick-tictactoe" data-mode="tictactoe">
+                    <span class="game-card-icon">⭕</span>
+                    <span class="game-card-label">Classic</span>
+                    <strong>Tic-Tac-Toe</strong>
+                    <span class="game-card-copy">Fast rounds, instant moves, score tracking, and AI accuracy analysis after every game.</span>
+                </button>
+                <button class="game-card" type="button" id="pick-chess" data-mode="chess">
+                    <span class="game-card-icon">♟️</span>
+                    <span class="game-card-label">Strategy</span>
+                    <strong>Chess</strong>
+                    <span class="game-card-copy">Full-board play with legal move highlights, move history, and computer responses.</span>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== GAME VIEW ===== -->
+    <main id="game-view" class="app-shell is-hidden">
+
+        <!-- Left: Hero / Controls Panel -->
+        <section class="hero-panel">
+            <div class="user-auth-bar">
+                <div id="user-badge" class="user-badge is-hidden">
+                    <span id="header-username-display">Username</span>
+                    <button id="header-logout-btn" class="logout-btn">Logout</button>
+                </div>
+            </div>
+            <div class="hero-top">
+                <p class="eyebrow" id="game-eyebrow">Play Against The Computer</p>
+                <h1 id="game-title">Tic-Tac-Toe</h1>
+                <p id="game-subtitle" class="subtitle">
+                    Claim three in a row before the computer does.
+                </p>
+            </div>
+
+            <!-- HUD -->
+            <div class="user-profile-card">
+                <div class="user-avatar">👤</div>
+                <div class="user-info">
+                    <p id="username-display" class="username">Loading...</p>
+                    <p id="user-stats" class="user-stats">Best Streak: 0</p>
+                </div>
+                <button id="logout-btn" class="logout-icon-btn" title="Logout">Logout</button>
+            </div>
+
+            <div class="hud">
+                <div class="status-card">
+                    <span class="label">Status</span>
+                    <p id="status" class="status-text">Your turn</p>
+                </div>
+                <div class="status-card score-card">
+                    <span class="label">Score</span>
+                    <p id="score" class="score-text">You 0 – 0 Computer | Draws 0</p>
+                    <span id="streak-badge" class="streak-badge is-hidden">🔥 1 streak</span>
+                </div>
+                <div id="side-card" class="status-card is-hidden">
+                    <span class="label">Your Side</span>
+                    <p id="side-indicator" class="status-text">You are White</p>
+                    <p id="side-helper" class="detail-text">Your side stays at the bottom and the last move is highlighted.</p>
+                </div>
+            </div>
+
+            <!-- Setup Panel -->
+            <div class="setup-panel">
+                <div class="setup-grid">
+                    <div>
+                        <label class="label" for="first-player">Who Plays First</label>
+                        <select id="first-player" class="select-input">
+                            <option value="human">You</option>
+                            <option value="computer">Computer</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label" for="difficulty">Difficulty Mode</label>
+                        <select id="difficulty" class="select-input">
+                            <option value="easy">Easy</option>
+                            <option value="medium">Medium</option>
+                            <option value="hard">Hard</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- Two player toggle -->
+                <div class="two-player-row">
+                    <label class="toggle-label" for="two-player-toggle">
+                        <input type="checkbox" id="two-player-toggle" class="toggle-checkbox">
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span class="toggle-text">Two-Player Mode (vs Human)</span>
+                    </label>
+                </div>
+                <p id="setup-hint" class="setup-hint">Progress auto-saves after every move and every new round.</p>
+            </div>
+
+            <!-- Actions -->
+            <div class="actions">
+                <button id="restart" class="primary-button" type="button">New Round</button>
+                <button id="change-game" class="secondary-button" type="button">Choose Another Game</button>
+                <button id="reset-score" class="secondary-button" type="button">Reset All Data</button>
+            </div>
+
+            <!-- Game History Log -->
+            <div class="history-panel" id="history-panel">
+                <button class="history-toggle" id="history-toggle" type="button">
+                    <span>📜 Recent Games</span>
+                    <span class="history-toggle-arrow">▾</span>
+                </button>
+                <div class="history-list" id="history-list"></div>
+            </div>
+        </section>
+
+        <!-- Right: Board + Move History -->
+        <div class="board-column">
+            <section class="board-panel" aria-label="Game board">
+                <!-- Sound toggle -->
+                <button id="sound-toggle" class="sound-toggle" type="button" title="Toggle sound">🔊</button>
+
+                <!-- Chess coordinate labels -->
+                <div id="chess-coords" class="chess-coords is-hidden">
+                    <div class="coord-ranks" id="coord-ranks"></div>
+                    <div class="coord-board-wrap">
+                        <div id="board" class="board" role="grid"></div>
+                        <div class="coord-files" id="coord-files"></div>
+                    </div>
+                </div>
+                <!-- Tic-tac-toe board (no coords) -->
+                <div id="ttt-board-wrap">
+                    <div id="ttt-board" class="board tictactoe-board" role="grid"></div>
+                </div>
+            </section>
+
+            <!-- Chess Move History -->
+            <section id="move-history-panel" class="move-history-panel is-hidden" aria-label="Move history">
+                <p class="eyebrow" style="margin:0 0 12px;">Move History</p>
+                <div id="move-history-list" class="move-history-list"></div>
+            </section>
+        </div>
+    </main>
+
+    <!-- ===== PAWN PROMOTION MODAL ===== -->
+    <div id="promotion-overlay" class="modal-overlay is-hidden" role="dialog" aria-modal="true" aria-label="Choose promotion piece">
+        <div class="modal-card promotion-card">
+            <p class="modal-eyebrow">Pawn Promotion</p>
+            <h2 class="modal-title">Choose your piece</h2>
+            <div class="promotion-choices" id="promotion-choices">
+                <button class="promo-btn" data-piece="q" id="promo-queen">
+                    <span class="promo-icon">♛</span>
+                    <span class="promo-name">Queen</span>
+                </button>
+                <button class="promo-btn" data-piece="r" id="promo-rook">
+                    <span class="promo-icon">♜</span>
+                    <span class="promo-name">Rook</span>
+                </button>
+                <button class="promo-btn" data-piece="b" id="promo-bishop">
+                    <span class="promo-icon">♝</span>
+                    <span class="promo-name">Bishop</span>
+                </button>
+                <button class="promo-btn" data-piece="n" id="promo-knight">
+                    <span class="promo-icon">♞</span>
+                    <span class="promo-name">Knight</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== GAME OVER MODAL ===== -->
+    <div id="gameover-overlay" class="modal-overlay is-hidden" role="dialog" aria-modal="true" aria-label="Game result">
+        <canvas id="confetti-canvas" aria-hidden="true"></canvas>
+        <div class="modal-card gameover-card">
+            <div id="gameover-icon" class="gameover-icon">🏆</div>
+            <p class="modal-eyebrow" id="gameover-eyebrow">Game Over</p>
+            <h2 class="modal-title" id="gameover-title">You Win!</h2>
+            <p class="modal-subtitle" id="gameover-subtitle"></p>
+
+            <!-- Performance Report -->
+            <div class="perf-report" id="perf-report">
+                <div class="perf-row">
+                    <div class="perf-metric">
+                        <span class="perf-label">Rating</span>
+                        <span class="perf-badge" id="perf-rating-badge">—</span>
+                    </div>
+                    <div class="perf-metric">
+                        <span class="perf-label">Accuracy</span>
+                        <span class="perf-value" id="perf-accuracy">—</span>
+                    </div>
+                    <div class="perf-metric">
+                        <span class="perf-label">Moves Made</span>
+                        <span class="perf-value" id="perf-moves">—</span>
+                    </div>
+                </div>
+                <div class="perf-bar-wrap">
+                    <div class="perf-bar-track">
+                        <div class="perf-bar-fill" id="perf-bar-fill"></div>
+                    </div>
+                    <span class="perf-bar-label" id="perf-bar-label">0%</span>
+                </div>
+                <p class="perf-comment" id="perf-comment"></p>
+            </div>
+
+            <div class="modal-actions">
+                <button class="primary-button" id="gameover-play-again" type="button">Play Again</button>
+                <button class="secondary-button" id="gameover-change-game" type="button">Change Game</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== ACCURACY MODAL ===== -->
+    <div id="accuracy-overlay" class="modal-overlay is-hidden" role="dialog" aria-modal="true" aria-label="Move accuracy details">
+        <div class="modal-card accuracy-card">
+            <p class="modal-eyebrow">Performance Analysis</p>
+            <h2 class="modal-title">Move Accuracy</h2>
+            <div class="accuracy-grid">
+                <div class="accuracy-item">
+                    <span class="accuracy-label">Optimal Moves</span>
+                    <span class="accuracy-val" id="acc-optimal">0</span>
+                </div>
+                <div class="accuracy-item">
+                    <span class="accuracy-label">Total Moves</span>
+                    <span class="accuracy-val" id="acc-total">0</span>
+                </div>
+                <div class="accuracy-item">
+                    <span class="accuracy-label">Accuracy Rate</span>
+                    <span class="accuracy-val" id="acc-rate">0%</span>
+                </div>
+                <div class="accuracy-item">
+                    <span class="accuracy-label">Performance</span>
+                    <span class="accuracy-val" id="acc-perf">0.0</span>
+                </div>
+            </div>
+            <p class="subtitle" style="margin-top:0;font-size:0.95rem;">This calculates how many of your moves matched the AI's suggested optimal line.</p>
+            <div class="modal-actions">
+                <button class="primary-button" id="close-accuracy" type="button">Got it</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== WARNING MODAL ===== -->
+    <div id="warning-overlay" class="modal-overlay is-hidden" role="dialog" aria-modal="true" aria-label="Warning">
+        <div class="modal-card" style="width:min(400px, 90%);text-align:center;">
+            <div style="font-size:3rem;margin-bottom:16px;">⚠️</div>
+            <h2 class="modal-title" id="warning-title">Are you sure?</h2>
+            <p class="modal-subtitle" id="warning-subtitle">This action cannot be undone.</p>
+            <div class="modal-actions" style="margin-top:32px;">
+                <button class="primary-button" id="warning-confirm" type="button">Confirm</button>
+                <button class="secondary-button" id="warning-cancel" type="button">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== ACHIEVEMENT TOAST CONTAINER ===== -->
+    <div id="achievement-container" class="achievement-container" aria-live="polite"></div>
+
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/features.js') }}"></script>
+</body>
+</html>
