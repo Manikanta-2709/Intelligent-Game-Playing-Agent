@@ -144,6 +144,7 @@ def build_game_state(board, status, *, player_color="white", difficulty="medium"
         "moveQuality": move_quality,
         "isCheck": board.is_check(),
         "moveCount": len(board.move_stack),
+        "evaluation": get_evaluation(board),
     }
 
 
@@ -251,6 +252,15 @@ def choose_computer_move(board, difficulty):
         return random.choice(top_slice)[1]
 
     return scored_moves[0][1]
+
+def get_evaluation(board):
+    """Return the current board evaluation score from White's perspective."""
+    # Depth 2 is fast enough for real-time bar
+    score = _minimax(board, depth=2, alpha=float("-inf"), beta=float("inf"), maximizing_player=True, perspective=board.turn)
+    # If it's black's turn, _minimax score is relative to black. Flip it for white.
+    if board.turn == chess.BLACK:
+        score = -score
+    return score
 
 
 def _capture_bonus(board, move):

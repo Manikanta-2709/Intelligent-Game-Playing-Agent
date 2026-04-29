@@ -781,6 +781,42 @@ button:disabled,
     position: relative;
     width: fit-content;
     margin: 0 auto;
+    display: flex; /* Ensure it's a flex for the bar */
+    align-items: stretch;
+    gap: 8px;
+}
+
+/* ===== EVALUATION BAR ===== */
+.eval-bar-wrap {
+    width: 20px;
+    background: #000;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.eval-bar-fill {
+    width: 100%;
+    height: 50%; /* Default 50/50 */
+    background: #fff;
+    transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.eval-bar-score {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.6rem;
+    font-weight: 800;
+    color: #fff;
+    mix-blend-mode: difference;
+    pointer-events: none;
+    z-index: 2;
 }
 
 .coord-board-wrap {

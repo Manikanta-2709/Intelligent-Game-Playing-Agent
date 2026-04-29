@@ -258,6 +258,21 @@ function setThinking(active) {
     if (overlay) overlay.classList.toggle("active", active);
 }
 
+function updateEvaluation(score) {
+    const fill = document.getElementById("eval-bar-fill");
+    const label = document.getElementById("eval-bar-score");
+    if (!fill || !label) return;
+
+    // Convert centipawns to percentage
+    // Uses a sigmoid-like curve to keep the bar reactive near 0
+    const pct = 100 / (1 + Math.exp(-0.004 * score));
+    fill.style.height = pct.toFixed(1) + "%";
+
+    let scoreText = (score / 100).toFixed(1);
+    if (score > 0) scoreText = "+" + scoreText;
+    label.textContent = scoreText;
+}
+
 function hasRoundStarted() {
     if (window.gameMode === "chess") {
         return window.moveCount > 0;
@@ -390,6 +405,9 @@ function applyRoundData(payload) {
         if (payload.moveQuality) {
             sessions.chess.moveQualities = sessions.chess.moveQualities || [];
             sessions.chess.moveQualities.push(payload.moveQuality);
+        }
+        if (typeof payload.evaluation !== "undefined") {
+            updateEvaluation(payload.evaluation);
         }
         if (typeof window.buildChessCoords === "function") window.buildChessCoords(chessPlayerColor);
         chessSelectedSquare = null;
