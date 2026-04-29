@@ -54,7 +54,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_FILE = DATA_DIR / "game_history.db"
 LEGACY_SAVE_FILE = DATA_DIR / "saved_game.json"
 
-app = Flask(__name__, template_folder=".", static_folder=".", static_url_path="")
+app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key-12345")
 
 
