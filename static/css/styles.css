@@ -778,50 +778,54 @@ button:disabled,
 
 /* ===== CHESS COORDINATES ===== */
 .chess-coords {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 0;
-    margin: 0 auto;
+    position: relative;
     width: fit-content;
+    margin: 0 auto;
 }
 
 .coord-board-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    position: relative;
 }
 
 .coord-ranks {
+    position: absolute;
+    left: -28px; /* Move outside the board */
+    top: 16px;   /* Match board padding */
+    bottom: 16px;
     display: flex;
     flex-direction: column;
-    justify-content: space-around;
-    padding: 32px 0; /* Align with board padding + internal space */
-    font-size: 0.8rem;
+    width: 24px;
     color: var(--accent);
     font-weight: 700;
-    width: 20px;
-    text-align: center;
-    height: min(90vw, 720px, calc(100vh - 120px)); /* Match board height */
-    box-sizing: border-box;
+    font-size: 0.85rem;
+    pointer-events: none;
 }
 
-.coord-ranks span, .coord-files span {
+.coord-ranks span {
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    flex: 1;
 }
 
 .coord-files {
+    position: absolute;
+    bottom: -24px; /* Move below the board */
+    left: 16px;    /* Match board padding */
+    right: 16px;
     display: flex;
-    justify-content: space-around;
-    font-size: 0.8rem;
+    height: 24px;
     color: var(--accent);
     font-weight: 700;
-    padding: 0 32px; /* Align with board padding */
-    height: 24px;
-    box-sizing: border-box;
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+.coord-files span {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 #ttt-board-wrap{display:flex;justify-content:center;align-items:center;width:100%;}
 
