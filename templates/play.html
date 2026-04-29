@@ -70,6 +70,11 @@
                 <div class="status-card">
                     <span class="label">Status</span>
                     <p id="status" class="status-text">Your turn</p>
+                    <div id="thinking-indicator" class="thinking-indicator">
+                        <div class="thinking-dot"></div>
+                        <div class="thinking-dot"></div>
+                        <div class="thinking-dot"></div>
+                    </div>
                 </div>
                 <div class="status-card score-card">
                     <span class="label">Score</span>
@@ -133,6 +138,7 @@
         <!-- Right: Board + Move History -->
         <div class="board-column">
             <section class="board-panel" aria-label="Game board">
+                <div class="board-thinking-overlay" id="board-thinking-overlay"></div>
                 <!-- Sound toggle -->
                 <button id="sound-toggle" class="sound-toggle" type="button" title="Toggle sound">🔊</button>
 

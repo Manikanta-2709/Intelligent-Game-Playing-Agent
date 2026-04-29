@@ -238,7 +238,6 @@ function updateScore() {
 function updateStatus(message) {
     statusElement.textContent = message;
 }
-
 function showTransientStatus(message, restoreMessage = statusElement.textContent) {
     if (statusFlashTimer !== null) {
         window.clearTimeout(statusFlashTimer);
@@ -250,6 +249,13 @@ function showTransientStatus(message, restoreMessage = statusElement.textContent
             updateStatus(restoreMessage);
         }
     }, 1800);
+}
+
+function setThinking(active) {
+    const indicator = document.getElementById("thinking-indicator");
+    const overlay = document.getElementById("board-thinking-overlay");
+    if (indicator) indicator.classList.toggle("active", active);
+    if (overlay) overlay.classList.toggle("active", active);
 }
 
 function hasRoundStarted() {
@@ -509,6 +515,7 @@ async function handleHumanMove(index) {
     renderBoard();
     if (window.SoundFX) window.SoundFX.move();
     updateStatus("Computer is thinking...");
+    setThinking(true);
     window._currentTTTBoard = [...board];
 
     try {
@@ -547,6 +554,7 @@ async function handleHumanMove(index) {
 
         applyRoundData(payload);
         syncBoardLock(payload);
+        setThinking(false);
         renderBoard();
     } catch (error) {
         if (requestToken !== activeRequestToken) {
@@ -559,6 +567,7 @@ async function handleHumanMove(index) {
         winningLine = null;
         renderBoard();
         updateStatus(error.message || "Something went wrong.");
+        setThinking(false);
     }
 }
 
@@ -640,6 +649,7 @@ async function submitChessMove(fromSquare, move) {
 
     renderBoard();
     updateStatus("Computer is thinking...");
+    setThinking(true);
     const _promotion = promotion;
 
     try {
@@ -669,6 +679,7 @@ async function submitChessMove(fromSquare, move) {
         }
         applyRoundData(payload);
         syncBoardLock(payload);
+        setThinking(false);
         renderBoard();
     } catch (error) {
         if (requestToken !== activeRequestToken) {
@@ -682,6 +693,7 @@ async function submitChessMove(fromSquare, move) {
         chessMovePairPending = false;
         renderBoard();
         updateStatus(error.message || "Unable to play that chess move.");
+        setThinking(false);
     }
 }
 
