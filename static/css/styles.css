@@ -1026,6 +1026,10 @@ button:disabled,
     border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
+.auth-error:empty {
+    display: none;
+}
+
 /* ===== RESPONSIVE ADDITIONS ===== */
 @media(max-width:960px){
   .board-column{flex-direction:column;}
