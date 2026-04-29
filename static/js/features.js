@@ -150,6 +150,9 @@ const Achievements = (function() {
     { id:"speed_demon",  icon:"⚡", name:"Speed Demon",     check:(s)=> s.game==="chess" && s.won && s.moves <= 20 },
     { id:"peacemaker",   icon:"🤝", name:"Peacemaker",      check:(s)=> s.draws >= 3 },
     { id:"come_back",    icon:"💪", name:"Come Back",       check:(s)=> s.wins >= 1 && s.prevLoss },
+    { id:"pacifist",     icon:"🕊️", name:"The Pacifist",     check:(s)=> s.game==="tictactoe" && s.won && s.aiMaxConsecutive < 2 },
+    { id:"executioner",  icon:"⚔️", name:"The Executioner",  check:(s)=> s.game==="chess" && s.queenCapturedUnder15 },
+    { id:"unyielding",   icon:"🛡️", name:"Unyielding",      check:(s)=> s.game==="chess" && s.won && s.diff==="hard" && s.moves >= 40 },
   ];
 
   let unlocked = [];
@@ -301,16 +304,18 @@ window.showGameOverModal = function(payload, gameMode, twoPlayerMode) {
   } else {
     const moves = payload.moveCount || 0;
     const diff  = (payload.difficulty || "medium");
-    rating = getChessRating(won, diff, moves);
     
-    // Calculate real accuracy from moveQualities array
+    // Calculate real accuracy and breakdown from moveQualities array
     let qArr = [];
     if (typeof sessions !== "undefined" && sessions.chess && sessions.chess.moveQualities) {
       qArr = sessions.chess.moveQualities;
     }
+    
+    const counts = { best: 0, great: 0, good: 0, inaccuracy: 0, blunder: 0 };
     if (qArr.length > 0) {
       let score = 0;
       qArr.forEach(q => {
+        counts[q] = (counts[q] || 0) + 1;
         if (q === "best" || q === "great") score += 100;
         else if (q === "good") score += 75;
         else if (q === "inaccuracy") score += 40;
@@ -321,8 +326,20 @@ window.showGameOverModal = function(payload, gameMode, twoPlayerMode) {
       accPct = won ? (diff==="hard"?95:diff==="medium"?75:55) : isDraw?50:25;
     }
     
-    acc.textContent = won ? "Win" : isDraw ? "Draw" : "Loss";
+    rating = getChessRating(won, diff, moves, accPct);
+    acc.textContent = Math.round(accPct) + "%";
     movesEl.textContent = moves;
+
+    // Display breakdown
+    const breakdownEl = document.getElementById("perf-breakdown");
+    if (breakdownEl) {
+      breakdownEl.innerHTML = `
+        <div class="breakdown-item"><span>${counts.best + counts.great}</span>Best</div>
+        <div class="breakdown-item"><span>${counts.good}</span>Good</div>
+        <div class="breakdown-item"><span>${counts.inaccuracy}</span>Inaccuracy</div>
+        <div class="breakdown-item"><span>${counts.blunder}</span>Blunder</div>
+      `;
+    }
   }
 
   badge.textContent  = rating.label;
@@ -354,7 +371,9 @@ window.showGameOverModal = function(payload, gameMode, twoPlayerMode) {
     game: gameMode,
     won, diff: payload.difficulty || "medium",
     moves: payload.moveCount || 0,
-    prevLoss: false
+    prevLoss: false,
+    aiMaxConsecutive: window.aiMaxConsecutive || 0,
+    queenCapturedUnder15: window.queenCapturedUnder15 || false
   });
 };
 

@@ -133,6 +133,8 @@ let chessLegalMoves = {};
 let chessSelectedSquare = null;
 let chessLastMove = null;
 window.moveCount = 0;
+window.queenCapturedUnder15 = false;
+window.aiMaxConsecutive = 0;
 
 function getActiveSession() {
     return sessions[window.gameMode];
@@ -529,6 +531,20 @@ async function handleHumanMove(index) {
         }
 
         applySessionData(payload);
+        
+        // Track AI consecutive for Pacifist
+        const boardAfterHuman = board;
+        const boardAfterAI = payload.board;
+        // (Simple check: did AI win? Or count max in line?)
+        // Let's check the board for 2-in-a-rows for AI
+        const WINS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+        let maxC = 0;
+        WINS.forEach(c => {
+            const count = c.filter(i => boardAfterAI[i] === "O").length;
+            if (count > maxC) maxC = count;
+        });
+        window.aiMaxConsecutive = Math.max(window.aiMaxConsecutive || 0, maxC);
+
         applyRoundData(payload);
         syncBoardLock(payload);
         renderBoard();
@@ -609,6 +625,14 @@ async function submitChessMove(fromSquare, move) {
     }
 
     if (window.SoundFX) { isCapture ? window.SoundFX.capture() : window.SoundFX.move(); }
+
+    // Track Queen capture for Executioner
+    if (isCapture && toIndex !== -1) {
+        const capturedPiece = board[toIndex].piece;
+        if ((capturedPiece === "q" || capturedPiece === "Q") && window.moveCount < 15) {
+            window.queenCapturedUnder15 = true;
+        }
+    }
 
     // Track human move for history (algebraic-style)
     chessLastHumanMoveAlg = fromSquare + "→" + move.to + (isPawnPromotion ? "=" + promotion.toUpperCase() : "");
@@ -693,6 +717,9 @@ async function startRound() {
     } else if (window.gameMode === "chess") {
         sessions.chess.moveQualities = [];
     }
+    
+    window.queenCapturedUnder15 = false;
+    window.aiMaxConsecutive = 0;
 
     renderBoard();
     updateStatus(window.gameMode === "chess" ? "Setting up the board..." : "Starting round...");
