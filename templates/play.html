@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Board Games Hub — Play Tic-Tac-Toe and Chess against a smart AI. Track your performance, earn achievements, and see how good you really are.">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/icon-192.png') }}">
     <title>Board Games Hub</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
@@ -101,9 +106,12 @@
                     <div>
                         <label class="label" for="difficulty">Difficulty Mode</label>
                         <select id="difficulty" class="select-input">
+                            <option value="beginner">Beginner</option>
                             <option value="easy">Easy</option>
-                            <option value="medium">Medium</option>
+                            <option value="medium" selected>Medium</option>
                             <option value="hard">Hard</option>
+                            <option value="expert">Expert</option>
+                            <option value="grandmaster">Grandmaster</option>
                         </select>
                     </div>
                 </div>
@@ -121,8 +129,16 @@
             <!-- Actions -->
             <div class="actions">
                 <button id="restart" class="primary-button" type="button">New Round</button>
+                <button id="hint-btn" class="hint-button" type="button" title="Get AI hint for best move">💡 Hint</button>
                 <button id="change-game" class="secondary-button" type="button">Choose Another Game</button>
-                <button id="reset-score" class="secondary-button" type="button">Reset All Data</button>
+            </div>
+            
+            <!-- Secondary Actions Row -->
+            <div class="actions secondary-actions">
+                <button id="stats-btn" class="secondary-button" type="button">📊 Statistics</button>
+                <button id="leaderboard-btn" class="secondary-button" type="button">🏆 Leaderboard</button>
+                <button id="puzzles-btn" class="secondary-button" type="button">🧩 Puzzles</button>
+                <button id="reset-score" class="secondary-button undo-button" type="button">Reset Data</button>
             </div>
 
             <!-- Game History Log -->
@@ -279,11 +295,88 @@
         </div>
     </div>
 
+    <!-- ===== STATISTICS MODAL ===== -->
+    <div id="statistics-overlay" class="modal-overlay is-hidden" role="dialog" aria-modal="true" aria-label="Player Statistics">
+        <div class="modal-card statistics-card" style="width:min(600px, 95%);">
+            <p class="modal-eyebrow">Performance Analytics</p>
+            <h2 class="modal-title">Your Statistics</h2>
+            <div id="stats-content" class="stats-content">
+                <div class="stats-loading">Loading statistics...</div>
+            </div>
+            <div class="modal-actions">
+                <button class="primary-button" id="close-stats" type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== LEADERBOARD MODAL ===== -->
+    <div id="leaderboard-overlay" class="modal-overlay is-hidden" role="dialog" aria-modal="true" aria-label="Leaderboard">
+        <div class="modal-card leaderboard-card" style="width:min(500px, 95%);">
+            <p class="modal-eyebrow">Rankings</p>
+            <h2 class="modal-title">🏆 Leaderboard</h2>
+            <div id="leaderboard-content" class="leaderboard-content">
+                <div class="stats-loading">Loading leaderboard...</div>
+            </div>
+            <div class="modal-actions">
+                <button class="primary-button" id="close-leaderboard" type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== PUZZLES MODAL ===== -->
+    <div id="puzzles-overlay" class="modal-overlay is-hidden" role="dialog" aria-modal="true" aria-label="Puzzles">
+        <div class="modal-card puzzles-card" style="width:min(500px, 95%);">
+            <p class="modal-eyebrow">Challenge Yourself</p>
+            <h2 class="modal-title">🧩 Daily Puzzles</h2>
+            <div id="puzzles-content" class="puzzles-content">
+                <div class="puzzle-category">
+                    <h3>Tic-Tac-Toe Challenges</h3>
+                    <div class="puzzle-list" id="ttt-puzzles">
+                        <div class="puzzle-item">
+                            <span class="puzzle-name">Win in 2 Moves</span>
+                            <span class="puzzle-difficulty easy">Easy</span>
+                        </div>
+                        <div class="puzzle-item">
+                            <span class="puzzle-name">Block & Counter</span>
+                            <span class="puzzle-difficulty medium">Medium</span>
+                        </div>
+                        <div class="puzzle-item">
+                            <span class="puzzle-name">Perfect Endgame</span>
+                            <span class="puzzle-difficulty hard">Hard</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="puzzle-category">
+                    <h3>Chess Tactics</h3>
+                    <div class="puzzle-list" id="chess-puzzles">
+                        <div class="puzzle-item">
+                            <span class="puzzle-name">Checkmate in 1</span>
+                            <span class="puzzle-difficulty easy">Easy</span>
+                        </div>
+                        <div class="puzzle-item">
+                            <span class="puzzle-name">Checkmate in 2</span>
+                            <span class="puzzle-difficulty medium">Medium</span>
+                        </div>
+                        <div class="puzzle-item">
+                            <span class="puzzle-name">Find the Best Move</span>
+                            <span class="puzzle-difficulty hard">Hard</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="primary-button" id="close-puzzles" type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ===== ACHIEVEMENT TOAST CONTAINER ===== -->
     <div id="achievement-container" class="achievement-container" aria-live="polite"></div>
 
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script src="{{ url_for('static', filename='js/features.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/enhanced-features.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
 </body>
 </html>

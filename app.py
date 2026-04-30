@@ -9,7 +9,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, session, redirect
+from flask import Flask, jsonify, render_template, request, session, redirect, send_from_directory
+from flask_socketio import SocketIO
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -36,7 +37,7 @@ HUMAN = "X"
 COMPUTER = "O"
 VALID_MARKERS = {"", HUMAN, COMPUTER}
 FIRST_PLAYER_OPTIONS = {"human", "computer"}
-DIFFICULTY_OPTIONS = {"easy", "medium", "hard"}
+DIFFICULTY_OPTIONS = {"beginner", "easy", "medium", "hard", "expert", "grandmaster"}
 AI_MOVE_DELAY_SECONDS = 2
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -781,7 +782,16 @@ def _validate_saved_state(payload):
 
 
 def _choose_computer_move(board, difficulty):
-    """Choose the AI move based on the selected difficulty."""
+    """Choose the AI move based on the selected difficulty.
+    
+    Difficulty levels:
+    - beginner: 85% random moves
+    - easy: 65% random moves
+    - medium: 30% random moves
+    - hard: 10% random moves
+    - expert: 5% random moves, deeper analysis
+    - grandmaster: Always optimal moves
+    """
     available_moves = get_available_moves(board)
     if not available_moves:
         return None, None
@@ -792,10 +802,19 @@ def _choose_computer_move(board, difficulty):
     if best_move is None or not fallback_moves:
         return best_move, best_move
 
-    if difficulty == "easy" and random.random() < 0.65:
-        return random.choice(fallback_moves), best_move
-
-    if difficulty == "medium" and random.random() < 0.3:
+    # Probability of making a suboptimal move based on difficulty
+    random_move_probabilities = {
+        "beginner": 0.85,
+        "easy": 0.65,
+        "medium": 0.30,
+        "hard": 0.10,
+        "expert": 0.05,
+        "grandmaster": 0.0,
+    }
+    
+    probability = random_move_probabilities.get(difficulty, 0.10)
+    
+    if random.random() < probability:
         return random.choice(fallback_moves), best_move
 
     return best_move, best_move
@@ -1355,6 +1374,404 @@ def reset_data():
         LEGACY_SAVE_FILE.unlink()
 
     return jsonify({"message": "All stored data was cleared."})
+
+
+@app.post("/api/hint")
+def get_hint():
+    """Get AI hint for the best move in Tic-Tac-Toe."""
+    payload = request.get_json(silent=True) or {}
+    board = payload.get("board")
+    
+    if not isinstance(board, list) or len(board) != 9:
+        return jsonify({"error": "Invalid board state."}), 400
+    
+    best_move = get_best_move(board.copy(), HUMAN)
+    
+    if best_move is None:
+        return jsonify({"error": "No valid moves available."}), 400
+    
+    # Calculate confidence based on game state
+    available = get_available_moves(board)
+    confidence = "high" if len(available) >= 5 else "medium" if len(available) >= 3 else "low"
+    
+    # Get coordinate label
+    coord = get_TTTCoord(best_move)
+    
+    return jsonify({
+        "move": best_move,
+        "coordinate": coord,
+        "confidence": confidence,
+        "explanation": _get_hint_explanation(board, best_move)
+    })
+
+
+@app.post("/api/chess/hint")
+def get_chess_hint():
+    """Get AI hint for the best move in Chess."""
+    payload = request.get_json(silent=True) or {}
+    fen = payload.get("fen", "")
+    
+    try:
+        board = load_chess_board(fen)
+    except Exception as e:
+        return jsonify({"error": f"Invalid FEN: {str(e)}"}), 400
+    
+    if board.is_game_over():
+        return jsonify({"error": "Game is already over."}), 400
+    
+    # Use the chess AI to find the best move
+    difficulty = "hard"  # Use hard difficulty for hints
+    best_move = choose_chess_computer_move(board, difficulty)
+    
+    if best_move is None:
+        return jsonify({"error": "No valid moves available."}), 400
+    
+    # Get move in algebraic notation
+    move_str = board.san(best_move)
+    
+    # Generate explanation
+    explanation = _get_chess_hint_explanation(board, best_move)
+    
+    return jsonify({
+        "move": move_str,
+        "uci": best_move.uci(),
+        "explanation": explanation
+    })
+
+
+def _get_chess_hint_explanation(board, move):
+    """Generate explanation for why a chess move is recommended."""
+    # Check if it's a checkmate
+    board.push(move)
+    if board.is_checkmate():
+        board.pop()
+        return "This move delivers checkmate! 🏆"
+    
+    board.pop()
+    
+    piece_names = {1: 'Pawn', 2: 'Knight', 3: 'Bishop', 4: 'Rook', 5: 'Queen', 6: 'King'}
+    
+    # Check if it's a capture
+    if board.is_capture(move):
+        captured_piece = board.piece_at(move.to_square)
+        if captured_piece:
+            return f"This captures the opponent's {piece_names.get(captured_piece.piece_type, 'piece')}."
+        elif board.is_en_passant(move):
+            return "This captures the opponent's Pawn en passant."
+    
+    # Check if it gives check
+    board.push(move)
+    if board.is_check():
+        board.pop()
+        return "This move gives check to the opponent's king."
+    board.pop()
+    
+    # Check for promotion
+    if move.promotion:
+        return f"This promotes your pawn to a {piece_names.get(move.promotion, 'piece')}."
+    
+    # General strategic advice
+    piece = board.piece_at(move.from_square)
+    if piece:
+        piece_name = piece_names.get(piece.piece_type, 'piece')
+        
+        # Center control
+        center_squares = [27, 28, 35, 36]  # d4, e4, d5, e5 squares
+        if move.to_square in center_squares:
+            return f"Good move - your {piece_name} controls the center."
+        
+        # Development
+        if piece.piece_type in [2, 3]:  # Knight or Bishop
+            if board.fullmove_number <= 10:
+                return f"Good development - developing your {piece_name} early."
+    
+    return "This is the best move based on position analysis."
+
+
+def _get_hint_explanation(board, move):
+    """Generate explanation for why a move is recommended."""
+    # Check if it's a winning move
+    test_board = board.copy()
+    test_board[move] = HUMAN
+    if check_winner(test_board, HUMAN):
+        return "This move wins the game!"
+    
+    # Check if it blocks opponent's win
+    test_board[move] = COMPUTER
+    if check_winner(test_board, COMPUTER):
+        return "This move blocks the opponent's winning move."
+    
+    # Check center
+    if move == 4 and board[4] == "":
+        return "Center is the strongest position."
+    
+    # Check corners
+    if move in [0, 2, 6, 8] and board[move] == "":
+        return "Corners provide strategic advantage."
+    
+    return "This is the optimal move based on game analysis."
+
+
+def get_TTTCoord(index):
+    """Convert board index to coordinate label."""
+    labels = ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"]
+    return labels[index] if 0 <= index < 9 else str(index)
+
+
+@app.get("/api/statistics")
+def get_statistics():
+    """Get comprehensive player statistics."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    _init_db()
+    with _connect_db() as connection:
+        # Overall stats
+        overall = connection.execute(
+            """
+            SELECT 
+                COUNT(*) as total_games,
+                COALESCE(SUM(CASE WHEN result = 'human_win' THEN 1 ELSE 0 END), 0) as wins,
+                COALESCE(SUM(CASE WHEN result = 'computer_win' THEN 1 ELSE 0 END), 0) as losses,
+                COALESCE(SUM(CASE WHEN result = 'draw' THEN 1 ELSE 0 END), 0) as draws,
+                COALESCE(AVG(game_ai_accuracy), 0) as avg_accuracy
+            FROM game_history
+            WHERE user_id = ?
+            """,
+            (user_id,)
+        ).fetchone()
+        
+        # Stats by game mode
+        ttt_stats = connection.execute(
+            """
+            SELECT 
+                COUNT(*) as total,
+                COALESCE(SUM(CASE WHEN result = 'human_win' THEN 1 ELSE 0 END), 0) as wins,
+                COALESCE(SUM(CASE WHEN result = 'computer_win' THEN 1 ELSE 0 END), 0) as losses,
+                COALESCE(SUM(CASE WHEN result = 'draw' THEN 1 ELSE 0 END), 0) as draws
+            FROM game_history
+            WHERE user_id = ? AND (game_mode = 'tictactoe' OR game_mode IS NULL)
+            """,
+            (user_id,)
+        ).fetchone()
+        
+        chess_stats = connection.execute(
+            """
+            SELECT 
+                COUNT(*) as total,
+                COALESCE(SUM(CASE WHEN result = 'human_win' THEN 1 ELSE 0 END), 0) as wins,
+                COALESCE(SUM(CASE WHEN result = 'computer_win' THEN 1 ELSE 0 END), 0) as losses,
+                COALESCE(SUM(CASE WHEN result = 'draw' THEN 1 ELSE 0 END), 0) as draws
+            FROM game_history
+            WHERE user_id = ? AND game_mode = 'chess'
+            """,
+            (user_id,)
+        ).fetchone()
+        
+        # Stats by difficulty
+        difficulty_stats = connection.execute(
+            """
+            SELECT 
+                difficulty,
+                COUNT(*) as total,
+                COALESCE(SUM(CASE WHEN result = 'human_win' THEN 1 ELSE 0 END), 0) as wins
+            FROM game_history
+            WHERE user_id = ?
+            GROUP BY difficulty
+            """,
+            (user_id,)
+        ).fetchall()
+        
+        # Recent form (last 10 games)
+        recent = connection.execute(
+            """
+            SELECT result
+            FROM game_history
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT 10
+            """,
+            (user_id,)
+        ).fetchall()
+        
+        # Best streak
+        user = connection.execute(
+            "SELECT best_streak FROM users WHERE id = ?",
+            (user_id,)
+        ).fetchone()
+        
+        # Win rate trends by date
+        trends = connection.execute(
+            """
+            SELECT 
+                DATE(saved_at) as date,
+                COUNT(*) as games,
+                COALESCE(SUM(CASE WHEN result = 'human_win' THEN 1 ELSE 0 END), 0) as wins
+            FROM game_history
+            WHERE user_id = ?
+            GROUP BY DATE(saved_at)
+            ORDER BY date DESC
+            LIMIT 7
+            """,
+            (user_id,)
+        ).fetchall()
+    
+    # Calculate win rate
+    total = overall["total_games"] or 0
+    win_rate = round((overall["wins"] / total) * 100, 1) if total > 0 else 0
+    
+    # Recent form
+    recent_form = []
+    for game in recent:
+        if game["result"] == "human_win":
+            recent_form.append("W")
+        elif game["result"] == "draw":
+            recent_form.append("D")
+        else:
+            recent_form.append("L")
+    
+    # Difficulty breakdown
+    diff_breakdown = {}
+    for row in difficulty_stats:
+        diff = row["difficulty"] or "unknown"
+        diff_breakdown[diff] = {
+            "total": row["total"],
+            "wins": row["wins"],
+            "win_rate": round((row["wins"] / row["total"]) * 100, 1) if row["total"] > 0 else 0
+        }
+    
+    # Trends
+    trend_data = []
+    for row in trends:
+        trend_data.append({
+            "date": row["date"],
+            "games": row["games"],
+            "wins": row["wins"],
+            "win_rate": round((row["wins"] / row["games"]) * 100, 1) if row["games"] > 0 else 0
+        })
+    
+    return jsonify({
+        "overall": {
+            "total_games": total,
+            "wins": overall["wins"],
+            "losses": overall["losses"],
+            "draws": overall["draws"],
+            "win_rate": win_rate,
+            "avg_accuracy": round(overall["avg_accuracy"], 1),
+            "best_streak": user["best_streak"] if user else 0
+        },
+        "by_game_mode": {
+            "tictactoe": {
+                "total": ttt_stats["total"],
+                "wins": ttt_stats["wins"],
+                "losses": ttt_stats["losses"],
+                "draws": ttt_stats["draws"],
+                "win_rate": round((ttt_stats["wins"] / ttt_stats["total"]) * 100, 1) if ttt_stats["total"] > 0 else 0
+            },
+            "chess": {
+                "total": chess_stats["total"],
+                "wins": chess_stats["wins"],
+                "losses": chess_stats["losses"],
+                "draws": chess_stats["draws"],
+                "win_rate": round((chess_stats["wins"] / chess_stats["total"]) * 100, 1) if chess_stats["total"] > 0 else 0
+            }
+        },
+        "by_difficulty": diff_breakdown,
+        "recent_form": recent_form,
+        "trends": trend_data
+    })
+
+
+@app.get("/api/game-replay/<int:game_id>")
+def get_game_replay(game_id):
+    """Get detailed game data for replay."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    _init_db()
+    with _connect_db() as connection:
+        row = connection.execute(
+            """
+            SELECT * FROM game_history
+            WHERE id = ? AND user_id = ?
+            """,
+            (game_id, user_id)
+        ).fetchone()
+    
+    if not row:
+        return jsonify({"error": "Game not found."}), 404
+    
+    return jsonify({
+        "id": row["id"],
+        "saved_at": row["saved_at"],
+        "result": row["result"],
+        "winner": row["winner"],
+        "final_board": _deserialize_board(row["final_board"]),
+        "winning_line": _deserialize_winning_line(row["winning_line"]),
+        "difficulty": row["difficulty"],
+        "game_mode": row["game_mode"] or "tictactoe",
+        "ai_accuracy": row["game_ai_accuracy"],
+        "ai_performance": row["game_ai_performance"]
+    })
+
+
+@app.get("/api/leaderboard")
+def get_leaderboard():
+    """Get leaderboard data (for single device, based on user stats)."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    _init_db()
+    with _connect_db() as connection:
+        # Get all users with their stats
+        users = connection.execute(
+            """
+            SELECT 
+                u.id,
+                u.username,
+                u.best_streak,
+                u.current_streak,
+                COUNT(gh.id) as total_games,
+                COALESCE(SUM(CASE WHEN gh.result = 'human_win' THEN 1 ELSE 0 END), 0) as wins,
+                COALESCE(AVG(gh.game_ai_accuracy), 0) as avg_accuracy
+            FROM users u
+            LEFT JOIN game_history gh ON u.id = gh.user_id
+            GROUP BY u.id, u.username, u.best_streak, u.current_streak
+            ORDER BY wins DESC, avg_accuracy DESC
+            LIMIT 10
+            """
+        ).fetchall()
+        
+        # Calculate ELO-like rating for each user
+        leaderboard = []
+        for u in users:
+            total = u["total_games"] or 0
+            win_rate = (u["wins"] / total * 100) if total > 0 else 0
+            # Simple rating formula: wins * 10 + accuracy * 0.5 + streak * 5
+            rating = (u["wins"] * 10) + (u["avg_accuracy"] * 0.5) + (u["best_streak"] * 5)
+            
+            leaderboard.append({
+                "username": u["username"],
+                "wins": u["wins"],
+                "total_games": total,
+                "win_rate": round(win_rate, 1),
+                "best_streak": u["best_streak"],
+                "avg_accuracy": round(u["avg_accuracy"], 1),
+                "rating": round(rating, 1),
+                "is_current_user": u["id"] == user_id
+            })
+        
+        # Sort by rating
+        leaderboard.sort(key=lambda x: x["rating"], reverse=True)
+        
+        # Add rank
+        for i, entry in enumerate(leaderboard):
+            entry["rank"] = i + 1
+    
+    return jsonify({"leaderboard": leaderboard})
 
 
 if __name__ == "__main__":

@@ -1,0 +1,93 @@
+{
+  "name": "Board Games Hub",
+  "short_name": "BoardGames",
+  "description": "Play Tic-Tac-Toe and Chess against AI opponents with advanced features",
+  "start_url": "/play",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/images/icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/images/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/images/icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/images/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/images/icon-152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/images/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/images/icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/images/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "entertainment", "board games"],
+  "screenshots": [
+    {
+      "src": "/static/images/screenshot-1.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "label": "Play Tic-Tac-Toe against AI"
+    },
+    {
+      "src": "/static/images/screenshot-2.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "label": "Chess game with move analysis"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Tic-Tac-Toe Game",
+      "short_name": "Tic-Tac-Toe",
+      "description": "Start a new Tic-Tac-Toe game",
+      "url": "/play?game=tictactoe",
+      "icons": [{ "src": "/static/images/icon-ttt.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "New Chess Game",
+      "short_name": "Chess",
+      "description": "Start a new Chess game",
+      "url": "/play?game=chess",
+      "icons": [{ "src": "/static/images/icon-chess.png", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
